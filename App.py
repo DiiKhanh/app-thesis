@@ -14,6 +14,15 @@ import numpy as np
 import scipy.io as sio
 from scipy import signal as scipy_signal
 
+try:
+    import librosa
+    import torch
+    import torch.nn as nn
+    LIBROSA_AVAILABLE = True
+except ImportError:
+    LIBROSA_AVAILABLE = False
+    st.warning("⚠️ Librosa hoặc PyTorch không được cài đặt. Mel-spectrogram visualization sẽ không khả dụng.")
+
 from components.header import show_header
 from components.footer import show_footer
 from components.styles import load_css
@@ -193,6 +202,7 @@ def debug_folder_structure(base_path, level=0, max_level=3):
         debug_info.append(f"{indent}❌ Error reading {base_path}: {str(e)}")
     return debug_info
 
+# IMPORTS REQUIRED (thêm vào đầu file chính):
 # BƯỚC 1: Thêm debugging và xử lý lỗi tốt hơn
 # Thay thế hàm load_recording_data với version debug này:
 
@@ -279,6 +289,125 @@ def load_recording_data(recording_location):
         st.error(f"❌ Error loading recording data from {recording_location}: {str(e)}")
         st.exception(e)  # Hiển thị full stack trace
         return None, None, None
+
+def create_mel_spectrogram_visualization(patient_folder_path, patient_id, patient_result, channels_to_plot=4, minutes_to_plot=2):
+    """Create mel-spectrogram visualization from EEG signals"""
+    
+    # Kiểm tra thư viện có sẵn không
+    if not LIBROSA_AVAILABLE:
+        st.error("❌ Không thể tạo mel-spectrogram: Thiếu thư viện librosa hoặc torch")
+        return None
+    
+    try:
+        st.write(f"🔍 Debug: Creating mel-spectrogram for patient {patient_id}")
+        
+        # Tìm file .mat và .hea trong folder
+        files = os.listdir(patient_folder_path)
+        mat_files = [f for f in files if f.endswith('.mat')]
+        
+        if not mat_files:
+            st.error("No .mat files found for mel-spectrogram")
+            return None
+            
+        # Sử dụng file đầu tiên
+        mat_file = mat_files[0]
+        base_name = mat_file.replace('.mat', '')
+        recording_location = os.path.join(patient_folder_path, base_name)
+        
+        # Load recording data
+        recording_data, channels, sampling_frequency = load_recording_data(recording_location)
+        
+        if recording_data is None:
+            st.error("Could not load recording data for mel-spectrogram")
+            return None
+        
+        # Chọn ngẫu nhiên một channel để tạo mel-spectrogram
+        import random
+        random_channel_idx = random.randint(0, min(channels_to_plot-1, recording_data.shape[0]-1))
+        
+        # Lấy signal data từ giữa recording
+        samples_per_minute = int(60 * sampling_frequency)
+        max_samples = min(int(minutes_to_plot * samples_per_minute), recording_data.shape[1])
+        start_idx = max(0, recording_data.shape[1]//2 - max_samples//2)
+        end_idx = start_idx + max_samples
+        
+        signal_data = recording_data[random_channel_idx, start_idx:end_idx]
+        channel_name = channels[random_channel_idx] if random_channel_idx < len(channels) else f"Channel_{random_channel_idx}"
+        
+        st.write(f"🔍 Debug: Using channel {channel_name} (index {random_channel_idx}) with {len(signal_data)} samples")
+        
+        # Convert to float32 và normalize signal
+        signal_data = signal_data.astype(np.float32)
+        
+        # Normalize signal để tránh lỗi
+        if np.std(signal_data) > 0:
+            signal_data = (signal_data - np.mean(signal_data)) / np.std(signal_data)
+        
+        # Tạo mel-spectrogram
+        st.write("🎵 Creating mel-spectrogram...")
+        spectrograms = librosa.feature.melspectrogram(
+            y=signal_data, 
+            sr=sampling_frequency, 
+            n_mels=224,
+            hop_length=512,
+            n_fft=2048,
+            fmax=sampling_frequency/2  # Thêm fmax để tránh lỗi
+        )
+        
+        # Convert to tensor và normalize
+        spectrograms_tensor = torch.from_numpy(spectrograms.astype(np.float32))
+        spectrograms_normalized = torch.nn.functional.normalize(spectrograms_tensor, p=2, dim=0)
+        
+        # Convert to dB scale for visualization
+        S_dB = librosa.power_to_db(spectrograms_normalized.numpy(), ref=np.max)
+        
+        # Create visualization
+        fig, ax = plt.subplots(figsize=(15, 7))
+        
+        # Display spectrogram
+        img = librosa.display.specshow(
+            S_dB, 
+            x_axis='time', 
+            y_axis='mel',
+            sr=sampling_frequency, 
+            hop_length=512,  # Thêm hop_length
+            ax=ax,
+            cmap='viridis'
+        )
+        
+        # Prediction color coding
+        pred_color = "🟢 Good" if patient_result['Prediction'] == 'Good' else "🔴 Poor"
+        actual_color = "🟢 Good" if patient_result['Actual'] == 'Good' else ("🔴 Poor" if patient_result['Actual'] == 'Poor' else "⚫ Unknown")
+        
+        ax.set_title(f"Mel-Spectrogram - {channel_name} from Patient {patient_id}\nPrediction: {pred_color} | Actual: {actual_color}", 
+                    fontsize=14, pad=20)
+        ax.set_xlabel("Time (seconds)", fontsize=12)
+        ax.set_ylabel("Mel Frequency", fontsize=12)
+        
+        # Add colorbar
+        cbar = plt.colorbar(img, ax=ax, format='%+2.0f dB')
+        cbar.set_label('Power (dB)', fontsize=12)
+        
+        plt.tight_layout()
+        
+        # Thêm thông tin spectrogram
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("📊 Mel Bands", "224")
+        with col2:
+            st.metric("🔊 Sampling Rate", f"{sampling_frequency} Hz")
+        with col3:
+            st.metric("⏱️ Duration", f"{len(signal_data)/sampling_frequency:.1f} sec")
+        with col4:
+            st.metric("📈 Shape", f"{spectrograms.shape[0]}x{spectrograms.shape[1]}")
+        
+        st.write("✅ Mel-spectrogram created successfully")
+        return fig
+        
+    except Exception as e:
+        st.error(f"Error creating mel-spectrogram: {str(e)}")
+        st.exception(e)
+        return None
 
 # BƯỚC 2: Thay thế phần UI visualization với version tự động hiển thị:
 
@@ -393,6 +522,26 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
             if fig:
                 st.pyplot(fig)
                 plt.close(fig)  # Clean up to prevent memory issues
+
+                if LIBROSA_AVAILABLE:
+                        st.markdown("### 🎵 Mel-Spectrogram Analysis")
+                        
+                        # Tạo mel-spectrogram cho channel đầu tiên
+                        fig_spec = create_mel_spectrogram_visualization(
+                            patient_source_path,
+                            selected_patient,
+                            selected_result,
+                            int(channels_to_plot),
+                            float(minutes_to_plot)
+                        )
+                        
+                        if fig_spec:
+                            st.pyplot(fig_spec)
+                            plt.close(fig_spec)  # Clean up
+                        else:
+                            st.warning("⚠️ Không thể tạo mel-spectrogram cho patient này")
+                else:
+                        st.info("💡 Để hiển thị mel-spectrogram, cần cài đặt: `pip install librosa torch`")    
                 
                 # Thêm thông tin bổ sung
                 with st.expander("ℹ️ Thông tin về EEG Visualization", expanded=False):
@@ -404,6 +553,11 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
                     - **Số kênh hiển thị**: {int(channels_to_plot)} kênh (được chọn ngẫu nhiên)
                     - **Thời gian**: {float(minutes_to_plot)} phút (từ giữa recording)
                     - **Model sử dụng**: {selected_model_display_name} ({model_type})
+                    
+                    **Mel-Spectrogram Info:**
+                    - **Frequency bins**: 224 mel bands
+                    - **Normalization**: L2 normalized
+                    - **Display**: Power spectrum in dB scale
                     """)
             else:
                 st.error("❌ Không thể tạo visualization cho patient này.")
@@ -804,7 +958,10 @@ def main():
                 st.error(f"Error in EEG visualization section: {str(e)}")
                 st.exception(e)
 
-            display_result(results, selected_model_display_name)
+            if results:
+                display_result(results, selected_model_display_name)
+            else:
+                st.error("❌ Không có kết quả prediction nào!")
 
     show_footer()
 
