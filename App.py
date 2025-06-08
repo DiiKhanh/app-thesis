@@ -299,7 +299,7 @@ def create_mel_spectrogram_visualization(patient_folder_path, patient_id, patien
         return None
     
     try:
-        st.write(f"🔍 Debug: Creating mel-spectrogram for patient {patient_id}")
+        # st.write(f"🔍 Debug: Creating mel-spectrogram for patient {patient_id}")
         
         # Tìm file .mat và .hea trong folder
         files = os.listdir(patient_folder_path)
@@ -334,7 +334,7 @@ def create_mel_spectrogram_visualization(patient_folder_path, patient_id, patien
         signal_data = recording_data[random_channel_idx, start_idx:end_idx]
         channel_name = channels[random_channel_idx] if random_channel_idx < len(channels) else f"Channel_{random_channel_idx}"
         
-        st.write(f"🔍 Debug: Using channel {channel_name} (index {random_channel_idx}) with {len(signal_data)} samples")
+        # st.write(f"🔍 Debug: Using channel {channel_name} (index {random_channel_idx}) with {len(signal_data)} samples")
         
         # Convert to float32 và normalize signal
         signal_data = signal_data.astype(np.float32)
@@ -376,8 +376,8 @@ def create_mel_spectrogram_visualization(patient_folder_path, patient_id, patien
         )
         
         # Prediction color coding
-        pred_color = "🟢 Good" if patient_result['Prediction'] == 'Good' else "🔴 Poor"
-        actual_color = "🟢 Good" if patient_result['Actual'] == 'Good' else ("🔴 Poor" if patient_result['Actual'] == 'Poor' else "⚫ Unknown")
+        pred_color = "Good" if patient_result['Prediction'] == 'Good' else "Poor"
+        actual_color = "Good" if patient_result['Actual'] == 'Good' else ("Poor" if patient_result['Actual'] == 'Poor' else "Unknown")
         
         ax.set_title(f"Mel-Spectrogram - {channel_name} from Patient {patient_id}\nPrediction: {pred_color} | Actual: {actual_color}", 
                     fontsize=14, pad=20)
@@ -483,15 +483,15 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
     try:
         with st.spinner(f"Đang tải và xử lý tín hiệu EEG cho patient {selected_patient}..."):
             
-            st.write(f"🔍 Debug: Looking for patient {selected_patient} in {len(all_patient_folders_info)} patient folders")
+            # st.write(f"🔍 Debug: Looking for patient {selected_patient} in {len(all_patient_folders_info)} patient folders")
             
             # Tìm đường dẫn đến data của patient được chọn
             patient_source_path = None
             for patient_id, patient_path in all_patient_folders_info:
-                st.write(f"🔍 Debug: Checking patient_id='{patient_id}' vs selected='{selected_patient}'")
+                # st.write(f"🔍 Debug: Checking patient_id='{patient_id}' vs selected='{selected_patient}'")
                 if patient_id == selected_patient:
                     patient_source_path = patient_path
-                    st.write(f"✅ Found patient path: {patient_source_path}")
+                    # st.write(f"✅ Found patient path: {patient_source_path}")
                     break
             
             if not patient_source_path:
@@ -502,7 +502,7 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
                 return
             
             # Debug: List files in patient folder
-            st.write(f"🔍 Debug: Files in patient folder {patient_source_path}:")
+            # st.write(f"🔍 Debug: Files in patient folder {patient_source_path}:")
             try:
                 files = os.listdir(patient_source_path)
                 for f in files:
@@ -698,9 +698,9 @@ def main():
     st.sidebar.subheader("🎯 Chọn Phiên Bản Model")
     model_type = st.sidebar.radio(
         "Loại Model:",
-        options=["pure", "improvement"],
-        format_func=lambda x: "🔵 Pure (Gốc)" if x == "pure" else "🟢 Improvement (Cải tiến)",
-        help="Chọn giữa phiên bản gốc (pure) và phiên bản cải tiến (improvement)"
+        options=["pure", "improvement", "stacking"],
+        format_func=lambda x: "🔵 Pure (Gốc)" if x == "pure" else "🟢 Improvement (Cải tiến)" if x == "improvement" else "🟡 Stacking (Stacked)",
+        help="Chọn giữa phiên bản gốc (pure) và phiên bản cải tiến (improvement) và stacking (stacking)"
     )
 
     # --- Model Configuration ---
@@ -748,13 +748,13 @@ def main():
     selected_model_physical_path = model_config[selected_model_display_name]["path"][model_type]
 
     # Hiển thị thông tin chi tiết
-    st.sidebar.info(f"""
-    **Model đã chọn:**
-    - 🏗️ Architecture: {selected_model_display_name}
-    - 📦 Type: {'🔵 Pure (Gốc)' if model_type == 'pure' else '🟢 Improvement (Cải tiến)'}
-    - 📁 Path: `{selected_model_physical_path}`
-    - 🐍 Module: `{model_type}.{selected_model_module_name}`
-    """)
+    # st.sidebar.info(f"""
+    # **Model đã chọn:**
+    # - 🏗️ Architecture: {selected_model_display_name}
+    # - 📦 Type: {'🔵 Pure (Gốc)' if model_type == 'pure' else '🟢 Improvement (Cải tiến)'}
+    # - 📁 Path: `{selected_model_physical_path}`
+    # - 🐍 Module: `{model_type}.{selected_model_module_name}`
+    # """)
 
     # Debug information
     if debug_mode:
