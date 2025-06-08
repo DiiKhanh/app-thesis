@@ -1,18 +1,4 @@
 import streamlit as st
-from PIL import Image
-import base64
-from io import BytesIO
-
-# Load image and convert to base64
-def get_base64_image(image_path):
-    img = Image.open(image_path)
-    buffered = BytesIO()
-    img.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    return f"data:image/png;base64,{img_str}"
-
-# Base64 version of your local image
-logo_local_base64 = get_base64_image("assets/logo-httt.png")
 
 def show_header():
     st.markdown("""
@@ -57,7 +43,7 @@ def show_header():
     </style>
     <div class="header-container">
         <div class="left-section">
-            <img src="{logo_local_base64}" alt="Logo Khoa HTTT">
+            <img src="https://httt.uit.edu.vn/wp-content/uploads/2022/10/Logo-Khoa-HTTT-300x300.png" alt="Logo Khoa HTTT">
             <div class="text-center">
                 <div class="left-text">
                 TRƯỜNG ĐẠI HỌC CÔNG NGHỆ THÔNG TIN - ĐHQG-HCM
