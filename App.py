@@ -33,11 +33,13 @@ from components.result import display_result
 current_dir = os.path.dirname(os.path.abspath(__file__))
 pure_dir = os.path.join(current_dir, 'pure')
 improvement_dir = os.path.join(current_dir, 'improvement')
+stacking_dir = os.path.join(current_dir, 'stack')
 
 # Thêm các đường dẫn vào sys.path
 sys.path.append(current_dir)
 sys.path.append(pure_dir)
 sys.path.append(improvement_dir)
+sys.path.append(stacking_dir)
 
 # --- CORRECTED: Ensure helper_code functions are imported ---
 try:
@@ -50,35 +52,40 @@ except ImportError as e:
 def get_model_functions(model_module_name, model_type="pure"):
     """
     Dynamically imports load_challenge_models and run_challenge_models
-    from the specified model module.
+    from the specified model module. For stacking, only run_challenge_models is imported.
     
     Args:
-        model_module_name: Tên module (ví dụ: "team_code_densenet")
-        model_type: "pure" hoặc "improvement"
+        model_module_name: Tên module (ví dụ: "team_code_densenet" hoặc "stacking")
+        model_type: "pure", "improvement", hoặc "stacking"
     """
     try:
         # Tạo tên module đầy đủ với prefix folder
         if model_type == "pure":
             full_module_name = f"pure.{model_module_name}"
-        else:  # improvement
+        elif model_type == "improvement":
             full_module_name = f"improvement.{model_module_name}"
-        
-        # st.write(f"Debug: Attempting to import module '{full_module_name}'")
+        else:  # stacking
+            full_module_name = f"stack.{model_module_name}"
         
         module = importlib.import_module(full_module_name)
-        # st.write(f"Debug: Successfully imported module '{full_module_name}'")
         
-        load_models_func = getattr(module, 'load_challenge_models')
-        run_models_func = getattr(module, 'run_challenge_models')
-        # st.write(f"Debug: Found functions in '{full_module_name}'")
-        
-        return load_models_func, run_models_func
+        if model_type == "stacking":
+            run_models_func = getattr(module, 'run_challenge_models')
+            load_models_func = getattr(module, 'get_challenge_models')
+            return load_models_func, run_models_func  # Chỉ trả về run_challenge_models, không có load_challenge_models
+        else:
+            load_models_func = getattr(module, 'load_challenge_models')
+            run_models_func = getattr(module, 'run_challenge_models')
+            return load_models_func, run_models_func
         
     except ImportError as e:
         st.error(f"❌ Không thể import module: {full_module_name}. Error: {str(e)}. Đảm bảo file {model_module_name}.py tồn tại trong folder {model_type}/.")
         return None, None
     except AttributeError as e:
-        st.error(f"❌ Module {full_module_name} thiếu hàm 'load_challenge_models' hoặc 'run_challenge_models'. Error: {str(e)}")
+        if model_type == "stacking":
+            st.error(f"❌ Module {full_module_name} thiếu hàm 'run_challenge_models'. Error: {str(e)}")
+        else:
+            st.error(f"❌ Module {full_module_name} thiếu hàm 'load_challenge_models' hoặc 'run_challenge_models'. Error: {str(e)}")
         return None, None
     except Exception as e:
         st.error(f"❌ Lỗi không xác định khi import từ {full_module_name}: {str(e)}")
@@ -387,6 +394,13 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
     except Exception as e:
         st.error(f"❌ Lỗi khi tạo EEG visualization: {str(e)}")
 
+def select_n_labels(labels, n):
+    """Select n evenly spaced labels from a list"""
+    if n >= len(labels):
+        return labels
+    indices = np.linspace(0, len(labels)-1, n, dtype=int)
+    return [labels[i] for i in indices]
+
 def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot=4, minutes_to_plot=2):
     """Create EEG visualization with proper channel names and clean display"""
     try:
@@ -409,79 +423,68 @@ def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot
         if recording_data is None:
             return None
         
-        # Create clean visualization
-        num_channels_to_plot = min(channels_to_plot, recording_data.shape[0])
-        
-        # Set up the figure with proper spacing
-        fig_height = max(8, num_channels_to_plot * 1.5)
-        fig, axes = plt.subplots(num_channels_to_plot, 1, figsize=(14, fig_height))
-        if num_channels_to_plot == 1:
-            axes = [axes]
-        
-        # Calculate time window
+        # Calculate time window parameters
         samples_per_minute = int(60 * sampling_frequency)
-        max_samples = min(int(minutes_to_plot * samples_per_minute), recording_data.shape[1])
+        i_to_plot = int(minutes_to_plot * samples_per_minute)
+        sig_len = recording_data.shape[1]
+        signal_mid = sig_len // 2
+        signal_start = max(0, int(signal_mid - i_to_plot//2))
+        signal_end = min(sig_len, int(signal_mid + i_to_plot//2))
         
-        # Select channels to display (prefer standard EEG channels)
-        channel_indices = []
-        if len(channels) >= num_channels_to_plot:
-            # Try to select key EEG channels first
-            priority_channels = ['Fp1', 'Fp2', 'F3', 'F4', 'C3', 'C4', 'P3', 'P4', 'O1', 'O2', 'Fz', 'Cz']
-            selected_channels = []
-            
-            # First, try to find priority channels
-            for priority_ch in priority_channels:
-                if priority_ch in channels and len(selected_channels) < num_channels_to_plot:
-                    idx = channels.index(priority_ch)
-                    channel_indices.append(idx)
-                    selected_channels.append(priority_ch)
-            
-            # If not enough priority channels, add others
-            while len(channel_indices) < num_channels_to_plot:
-                for i, ch in enumerate(channels):
-                    if i not in channel_indices and len(channel_indices) < num_channels_to_plot:
-                        channel_indices.append(i)
-                        break
-        else:
-            channel_indices = list(range(num_channels_to_plot))
+        # Select channels randomly (similar to reference code)
+        num_channels = recording_data.shape[0]
+        num_channels_to_plot = min(channels_to_plot, num_channels)
         
-        # Plot signals
-        for plot_idx, ch_idx in enumerate(channel_indices):
-            # Get data from middle of signal for better representation
-            start_idx = max(0, recording_data.shape[1]//2 - max_samples//2)
-            end_idx = start_idx + max_samples
-            
-            signal_data = recording_data[ch_idx, start_idx:end_idx]
-            time_axis = np.arange(len(signal_data)) / sampling_frequency / 60  # Convert to minutes
-            
-            # Plot with appropriate styling
-            axes[plot_idx].plot(time_axis, signal_data, 'b-', linewidth=0.8, alpha=0.8)
-            
-            # Set channel name
-            channel_name = channels[ch_idx] if ch_idx < len(channels) else f"EEG_{ch_idx}"
-            axes[plot_idx].set_title(f"Channel: {channel_name}", fontsize=12, fontweight='bold')
-            axes[plot_idx].set_ylabel("Amplitude (μV)", fontsize=10)
-            axes[plot_idx].grid(True, alpha=0.3, linestyle='--')
-            
-            # Improve y-axis scaling
-            signal_std = np.std(signal_data)
-            signal_mean = np.mean(signal_data)
-            y_range = 4 * signal_std  # Show ±4 standard deviations
-            axes[plot_idx].set_ylim([signal_mean - y_range, signal_mean + y_range])
-            
-            # Format axes
-            axes[plot_idx].tick_params(axis='both', which='major', labelsize=9)
+        # Set random seed for reproducible results
+        np.random.seed(42)
+        rand_channel_ids = np.random.choice(num_channels, num_channels_to_plot, replace=False)
+        rand_channels = [channels[i] if i < len(channels) else f"EEG_{i}" for i in rand_channel_ids]
         
-        # Set common x-label
-        axes[-1].set_xlabel("Time (minutes)", fontsize=12, fontweight='bold')
+        # Extract signal segments from middle of recording
+        rand_signal_selection = []
+        for ch_idx in rand_channel_ids:
+            signal_segment = recording_data[ch_idx, signal_start:signal_end]
+            rand_signal_selection.append(signal_segment)
         
-        # Overall title and layout
-        fig.suptitle(f"EEG Signals - Patient {patient_id}\n"
+        # Create time ticks in minutes
+        total_samples = signal_end - signal_start
+        time_minutes = np.arange(total_samples) / (60 * sampling_frequency)
+        
+        # Set up the figure
+        fig, axs = plt.subplots(num_channels_to_plot, 1, figsize=(15, 12))
+        if num_channels_to_plot == 1:
+            axs = [axs]
+        
+        # Plot each channel
+        num_ticks = 8
+        for i in range(num_channels_to_plot):
+            # Plot the signal
+            axs[i].plot(rand_signal_selection[i], 'b-', linewidth=0.8)
+            
+            # Set title and labels
+            axs[i].set_title(rand_channels[i], fontsize=18, fontweight='bold')
+            axs[i].set_xlabel("Time (min)", fontsize=16)
+            axs[i].set_ylabel("Voltage (μV)", fontsize=16)
+            axs[i].tick_params(axis='both', which='major', labelsize=14)
+            
+            # Set up time axis with proper labels
+            time_labels = time_minutes
+            selected_labels = select_n_labels(time_labels, num_ticks)
+            selected_ticks = np.linspace(0, len(rand_signal_selection[i])-1, num_ticks, dtype=int)
+            
+            axs[i].set_xticks(selected_ticks)
+            axs[i].set_xticklabels([f"{label:.1f}" for label in selected_labels])
+            
+            # Add grid for better readability
+            axs[i].grid(True, alpha=0.3, linestyle='--')
+        
+        # Overall title
+        plt.suptitle(f"Patient {patient_id} - EEG Signals\n"
                     f"Sampling Rate: {sampling_frequency} Hz | Duration: {minutes_to_plot} min", 
-                    fontsize=14, fontweight='bold')
+                    fontsize=20, fontweight='bold')
         
-        plt.tight_layout()
-        plt.subplots_adjust(top=0.92)  # Make room for title
+        # Adjust layout
+        plt.subplots_adjust(hspace=0.6, top=0.85)
         
         return fig
         
@@ -546,7 +549,7 @@ def main():
         "Loại Model:",
         options=["pure", "improvement", "stacking"],
         format_func=lambda x: "🔵 Pure (Gốc)" if x == "pure" else "🟢 Improvement (Cải tiến)" if x == "improvement" else "🟡 Stacking (Stacked)",
-        help="Chọn giữa phiên bản gốc (pure) và phiên bản cải tiến (improvement) và stacking (stacking)"
+        help="Chọn giữa phiên bản gốc (pure) và phiên bản cải tiến (improvement) và stacking"
     )
 
     # --- Model Configuration ---
@@ -578,10 +581,17 @@ def main():
                 "pure": "diikhanh/pure-efficentnetv2",
                 "improvement": "diikhanh/improvement-efficentnetv2"
             }  
+        },
+        "Stacking": {
+            "module": "stacking",
+            "path": {
+                "stacking": "diikhanh/stacking"
+            }
         }
     }
 
     # --- Model Selection ---
+    # if model_type != "stacking":  # Không hiển thị nút tải model nếu là stacking
     st.sidebar.subheader("🤖 Chọn Model")
     selected_model_display_name = st.sidebar.selectbox(
         "Model Architecture:",
@@ -590,17 +600,12 @@ def main():
     )
 
     # Hiển thị thông tin model đã chọn
-    selected_model_module_name = model_config[selected_model_display_name]["module"]
-    selected_model_physical_path = model_config[selected_model_display_name]["path"][model_type]
-
-    # Hiển thị thông tin chi tiết
-    # st.sidebar.info(f"""
-    # **Model đã chọn:**
-    # - 🏗️ Architecture: {selected_model_display_name}
-    # - 📦 Type: {'🔵 Pure (Gốc)' if model_type == 'pure' else '🟢 Improvement (Cải tiến)'}
-    # - 📁 Path: `{selected_model_physical_path}`
-    # - 🐍 Module: `{model_type}.{selected_model_module_name}`
-    # """)
+    if model_type == "stacking":
+        selected_model_module_name = model_config["Stacking"]["module"]
+        selected_model_physical_path = model_config["Stacking"]["path"]['stacking']
+    else:
+        selected_model_module_name = model_config[selected_model_display_name]["module"]
+        selected_model_physical_path = model_config[selected_model_display_name]["path"][model_type]
 
     # Debug information
     if debug_mode:
@@ -609,6 +614,7 @@ def main():
     Current Directory: {current_dir}
     Pure Directory: {pure_dir}
     Improvement Directory: {improvement_dir}
+    Stacking Directory: {stacking_dir}
     Selected Module: {model_type}.{selected_model_module_name}
     Model Path: {selected_model_physical_path}
     Sys Path: {sys.path[-3:]}  # Last 3 entries
@@ -623,10 +629,14 @@ def main():
     if load_fn and run_fn:
         st.session_state.predictor.set_model_functions(selected_model_display_name, load_fn, run_fn)
         st.sidebar.success(f"✅ Đã tải functions cho {selected_model_display_name} ({model_type})")
+    elif model_type == "stacking":
+        st.session_state.predictor.set_model_functions("Stacking", load_fn, run_fn)
+        st.sidebar.success(f"✅ Đã tải functions cho {selected_model_display_name} ({model_type})")
     else:
         st.sidebar.error(f"❌ Không thể tải các hàm cho model {selected_model_display_name} ({model_type}). Kiểm tra module '{model_type}.{selected_model_module_name}'.")
 
     # --- Load Models Button ---
+    
     if st.sidebar.button("🔄 Tải Models", key="load_models_button"):
         if st.session_state.predictor.load_challenge_models_dynamic:
             with st.spinner(f"Đang tải {selected_model_display_name} ({model_type})..."):

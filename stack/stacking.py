@@ -21,7 +21,7 @@ from tqdm import tqdm
 from torch.utils.data import Dataset
 import torchvision.models as models
 from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, precision_score, recall_score
-
+from huggingface_hub import hf_hub_download
 
 
 TRAIN_LOG_FILE_NAME = "training_log.csv"
@@ -1157,9 +1157,9 @@ def torch_prediction(model, data_loader, device):
 
 def get_challenge_models(model_folder, model_filename): 
     model_folder = model_folder.lower()
-    filename = os.path.join(model_folder, "models.sav")
+    filename = hf_hub_download(repo_id=model_folder, filename="models.sav")
     model = joblib.load(filename)
-    file_path_eeg = os.path.join(model_folder, model_filename+'.pth')
+    file_path_eeg = hf_hub_download(repo_id=model_folder, filename=model_filename+'.pth')
     if USE_TORCH:
         print("Load model...")
         model["torch_model_eeg"] = load_last_pt_ckpt(model_filename, 
@@ -1337,7 +1337,7 @@ def train_challenge_model(data_folder, model_folder, patient_ids, verbose):
     return meta_model, models
 
       
-def run_challenge_model(model_folder, data_folder, patient_id, verbose):
+def run_challenge_models(model_folder, data_folder, patient_id, verbose):
     # Load meta-model
     models = {
         "densenet121": get_challenge_models(model_folder, "densenet121")["torch_model_eeg"],
@@ -1345,11 +1345,15 @@ def run_challenge_model(model_folder, data_folder, patient_id, verbose):
         "convnext_tiny": get_challenge_models(model_folder, "convnext_tiny")["torch_model_eeg"],
         # "resnet50": get_challenge_models(model_folder, "resnet50")["torch_model_eeg"]
     }
-    
-    meta_model_path = os.path.join(model_folder, "meta_model.sav")
-    if not os.path.exists(meta_model_path):
-        raise FileNotFoundError(f"Meta model not found at {meta_model_path}")
-    meta_model = joblib.load(meta_model_path)
+    try:
+        meta_model_path = hf_hub_download(repo_id=model_folder.lower(), filename="meta_model.sav")
+        meta_model = joblib.load(meta_model_path)
+    except Exception as e:
+        raise FileNotFoundError(f"Meta model not found in repository {model_folder}") from e
+    # meta_model_path = os.path.join(model_folder, "meta_model.sav")
+    # if not os.path.exists(meta_model_path):
+    #     raise FileNotFoundError(f"Meta model not found at {meta_model_path}")
+    # meta_model = joblib.load(meta_model_path)
 
     # Load data
     if verbose >= 2:

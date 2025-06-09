@@ -48,7 +48,7 @@ import numpy as np, scipy as sp, os, sys
 from tqdm import tqdm
 import time
 from helper_code import *
-from stacking import run_challenge_model
+from stacking import run_challenge_models
 
 
 output_filename = 'stacking.csv'
@@ -99,7 +99,7 @@ def run_model(model_folder, data_folder, output_folder,patient_ids,  allow_failu
 
         # Allow or disallow the model(s) to fail on parts of the data; this can be helpful for debugging.
         try:
-            outcome_binary, outcome_probability = run_challenge_model(model_folder, data_folder, patient_id, verbose) ### Teams: Implement this function!!!
+            outcome_binary, outcome_probability = run_challenge_models(model_folder, data_folder, patient_id, verbose) ### Teams: Implement this function!!!
             print("Predict outcome: ", "Good" if sanitize_boolean_value(outcome_binary) == 0 else "Poor", " - Actual outcome: ", actual_outcome)
             
             prediction_results.append({
