@@ -202,97 +202,78 @@ def debug_folder_structure(base_path, level=0, max_level=3):
         debug_info.append(f"{indent}❌ Error reading {base_path}: {str(e)}")
     return debug_info
 
-# BƯỚC 1: Thêm debugging và xử lý lỗi tốt hơn
-# Thay thế hàm load_recording_data với version debug này:
-
 def load_recording_data(recording_location):
-    """Load EEG recording data from .mat file with debug info"""
+    """Load EEG recording data from .mat file"""
     try:
-        st.write(f"🔍 Debug: Trying to load from: {recording_location}")
-        
-        # Kiểm tra file .mat có tồn tại không
         mat_file = recording_location + '.mat'
         hea_file = recording_location + '.hea'
-        
-        st.write(f"🔍 Debug: Checking files:")
-        st.write(f"  - .mat file: {mat_file} - Exists: {os.path.exists(mat_file)}")
-        st.write(f"  - .hea file: {hea_file} - Exists: {os.path.exists(hea_file)}")
         
         if not os.path.exists(mat_file):
             st.error(f"❌ .mat file not found: {mat_file}")
             return None, None, None
             
         # Load .mat file
-        st.write("📂 Loading .mat file...")
         mat_data = sio.loadmat(mat_file)
-        st.write(f"🔍 Debug: .mat file keys: {list(mat_data.keys())}")
         
         # Extract signal data
         recording_data = None
         if 'val' in mat_data:
             recording_data = mat_data['val']
-            st.write(f"✅ Found 'val' key with shape: {recording_data.shape}")
         else:
-            # Tìm key chứa dữ liệu signal (bỏ qua metadata keys)
+            # Find key containing signal data (ignore metadata keys)
             data_keys = [k for k in mat_data.keys() if not k.startswith('__')]
-            st.write(f"🔍 Debug: Available data keys: {data_keys}")
-            
             if data_keys:
                 key = data_keys[0]
                 recording_data = mat_data[key]
-                st.write(f"✅ Using key '{key}' with shape: {recording_data.shape}")
             else:
                 st.error("❌ No valid data keys found in .mat file")
                 return None, None, None
         
-        # Load header file
+        # Load header file for channel names and sampling frequency
         channels = []
         sampling_frequency = 250  # default
         
         if os.path.exists(hea_file):
-            st.write("📂 Loading .hea file...")
             with open(hea_file, 'r') as f:
                 lines = f.readlines()
-                st.write(f"🔍 Debug: .hea file has {len(lines)} lines")
                 
                 if lines:
                     # First line contains basic info
                     first_line = lines[0].strip().split()
-                    st.write(f"🔍 Debug: First line: {first_line}")
-                    
                     if len(first_line) >= 3:
                         try:
                             sampling_frequency = int(first_line[2])
-                            st.write(f"✅ Sampling frequency: {sampling_frequency} Hz")
                         except:
-                            st.warning("⚠️ Could not parse sampling frequency, using default 250 Hz")
+                            pass  # Use default
                     
                     # Following lines contain channel info
-                    for i, line in enumerate(lines[1:], 1):
+                    for line in lines[1:]:
                         if line.strip():
                             parts = line.strip().split()
                             if len(parts) >= 2:
                                 channels.append(parts[1])
-                    
-                    st.write(f"✅ Found {len(channels)} channels: {channels[:5]}..." if len(channels) > 5 else f"✅ Found {len(channels)} channels: {channels}")
         
-        # Nếu không có channels từ header, tạo default
+        # If no channels from header, use standard EEG channel names
         if not channels:
-            channels = [f"Channel_{i}" for i in range(recording_data.shape[0])]
-            st.write(f"⚠️ Using default channel names: {channels[:5]}..." if len(channels) > 5 else f"⚠️ Using default channel names: {channels}")
+            standard_eeg_channels = [
+                'Fp1', 'Fp2', 'F7', 'F8', 'F3', 'F4', 'T3', 'T4', 
+                'C3', 'C4', 'T5', 'T6', 'P3', 'P4', 'O1', 'O2', 
+                'Fz', 'Cz', 'Pz', 'Fpz', 'Oz', 'F9'
+            ]
+            num_channels = recording_data.shape[0]
+            if num_channels <= len(standard_eeg_channels):
+                channels = standard_eeg_channels[:num_channels]
+            else:
+                channels = standard_eeg_channels + [f"EEG_{i}" for i in range(len(standard_eeg_channels), num_channels)]
             
-        st.write(f"✅ Successfully loaded data with shape {recording_data.shape}, {sampling_frequency} Hz, {len(channels)} channels")
         return recording_data, channels, sampling_frequency
         
     except Exception as e:
-        st.error(f"❌ Error loading recording data from {recording_location}: {str(e)}")
-        st.exception(e)  # Hiển thị full stack trace
+        st.error(f"❌ Error loading recording data: {str(e)}")
         return None, None, None
 
-# BƯỚC 2: Thay thế phần UI visualization với version tự động hiển thị:
-
 def add_eeg_visualization_section(results, all_patient_folders_info, selected_model_display_name, model_type):
-    """Separate function for EEG visualization - Auto display without button"""
+    """EEG visualization section with auto display"""
     
     if not results or len([r for r in results if 'Error' not in r['Prediction']]) == 0:
         st.info("Chạy prediction trước để có thể visualize EEG signals.")
@@ -301,13 +282,14 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
     st.markdown("---")
     st.header("📊 EEG Signal Visualization")
     
-    # Tạo selectbox để chọn patient cần visualize
+    # Get successful patients
     successful_patients = [r['Patient ID'] for r in results if 'Error' not in r['Prediction']]
     
     if not successful_patients:
         st.info("Không có patient nào để visualize (tất cả đều gặp lỗi prediction).")
         return
     
+    # UI controls
     col_viz1, col_viz2 = st.columns([2, 1])
     
     with col_viz1:
@@ -340,7 +322,7 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
                 key="minutes_input"
             )
     
-    # Hiển thị thông tin patient được chọn
+    # Display patient info
     try:
         selected_result = next(r for r in results if r['Patient ID'] == selected_patient)
         
@@ -357,43 +339,26 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
         st.error(f"Error displaying patient info: {str(e)}")
         return
     
-    # AUTO DISPLAY - Hiển thị ngay lập tức mà không cần button
+    # Auto display EEG signals
     st.markdown("### 📈 EEG Signals Display")
     
     try:
         with st.spinner(f"Đang tải và xử lý tín hiệu EEG cho patient {selected_patient}..."):
             
-            st.write(f"🔍 Debug: Looking for patient {selected_patient} in {len(all_patient_folders_info)} patient folders")
-            
-            # Tìm đường dẫn đến data của patient được chọn
+            # Find patient source path
             patient_source_path = None
             for patient_id, patient_path in all_patient_folders_info:
-                st.write(f"🔍 Debug: Checking patient_id='{patient_id}' vs selected='{selected_patient}'")
                 if patient_id == selected_patient:
                     patient_source_path = patient_path
-                    st.write(f"✅ Found patient path: {patient_source_path}")
                     break
             
             if not patient_source_path:
                 st.error(f"❌ Không tìm thấy đường dẫn data cho patient {selected_patient}")
-                st.write("Available patients:")
-                for pid, ppath in all_patient_folders_info:
-                    st.write(f"  - {pid}: {ppath}")
                 return
             
-            # Debug: List files in patient folder
-            st.write(f"🔍 Debug: Files in patient folder {patient_source_path}:")
-            try:
-                files = os.listdir(patient_source_path)
-                for f in files:
-                    st.write(f"  - {f}")
-            except Exception as fe:
-                st.error(f"Cannot list files in {patient_source_path}: {str(fe)}")
-                return
-            
-            # Gọi hàm visualization
+            # Create visualization
             fig = visualize_eeg_signals_safe(
-                patient_source_path,  # direct patient folder path
+                patient_source_path,
                 selected_patient,
                 int(channels_to_plot),
                 float(minutes_to_plot)
@@ -403,99 +368,125 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
                 st.pyplot(fig)
                 plt.close(fig)  # Clean up to prevent memory issues
                 
-                # Thêm thông tin bổ sung
+                # Additional info
                 with st.expander("ℹ️ Thông tin về EEG Visualization", expanded=False):
                     st.markdown(f"""
                     **Thông tin hiển thị:**
                     - **Patient ID**: {selected_patient}
                     - **Prediction**: {selected_result['Prediction']}
                     - **Actual Outcome**: {selected_result['Actual']}
-                    - **Số kênh hiển thị**: {int(channels_to_plot)} kênh (được chọn ngẫu nhiên)
+                    - **Số kênh hiển thị**: {int(channels_to_plot)} kênh EEG chuẩn
                     - **Thời gian**: {float(minutes_to_plot)} phút (từ giữa recording)
                     - **Model sử dụng**: {selected_model_display_name} ({model_type})
+                    
+                    **Tên kênh EEG chuẩn**: Fp1, Fp2, F7, F8, F3, F4, T3, T4, C3, C4, T5, T6, P3, P4, O1, O2, Fz, Cz, Pz, Fpz, Oz, F9
                     """)
             else:
                 st.error("❌ Không thể tạo visualization cho patient này.")
                 
     except Exception as e:
         st.error(f"❌ Lỗi khi tạo EEG visualization: {str(e)}")
-        st.exception(e)  # Show full stack trace for debugging
 
-# BƯỚC 3: Hàm visualization an toàn hơn:
 def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot=4, minutes_to_plot=2):
-    """Safe version of EEG visualization with extensive error handling"""
+    """Create EEG visualization with proper channel names and clean display"""
     try:
-        st.write(f"🔍 Debug: visualize_eeg_signals_safe called with:")
-        st.write(f"  - patient_folder_path: {patient_folder_path}")
-        st.write(f"  - patient_id: {patient_id}")
-        st.write(f"  - channels_to_plot: {channels_to_plot}")
-        st.write(f"  - minutes_to_plot: {minutes_to_plot}")
-        
-        # Tìm file .mat và .hea trong folder
+        # Find .mat and .hea files in folder
         files = os.listdir(patient_folder_path)
         mat_files = [f for f in files if f.endswith('.mat')]
-        hea_files = [f for f in files if f.endswith('.hea')]
-        
-        st.write(f"🔍 Debug: Found {len(mat_files)} .mat files and {len(hea_files)} .hea files")
-        st.write(f"  - .mat files: {mat_files}")
-        st.write(f"  - .hea files: {hea_files}")
         
         if not mat_files:
             st.error(f"No .mat files found in {patient_folder_path}")
             return None
             
-        # Sử dụng file đầu tiên
+        # Use first .mat file
         mat_file = mat_files[0]
         base_name = mat_file.replace('.mat', '')
         recording_location = os.path.join(patient_folder_path, base_name)
         
-        st.write(f"🔍 Debug: Using base recording location: {recording_location}")
-        
-        # Load recording data với debug
+        # Load recording data
         recording_data, channels, sampling_frequency = load_recording_data(recording_location)
         
         if recording_data is None:
-            st.error(f"Could not load recording data")
             return None
         
-        # Tạo plot đơn giản trước
-        st.write(f"🔍 Debug: Creating plot with data shape: {recording_data.shape}")
+        # Create clean visualization
+        num_channels_to_plot = min(channels_to_plot, recording_data.shape[0])
         
-        # Đơn giản hóa - chỉ plot vài channel đầu tiên
-        num_channels_to_plot = min(channels_to_plot, recording_data.shape[0], 4)  # Max 4 để an toàn
-        
-        fig, axes = plt.subplots(num_channels_to_plot, 1, figsize=(12, 8))
+        # Set up the figure with proper spacing
+        fig_height = max(8, num_channels_to_plot * 1.5)
+        fig, axes = plt.subplots(num_channels_to_plot, 1, figsize=(14, fig_height))
         if num_channels_to_plot == 1:
             axes = [axes]
         
-        # Plot data đơn giản
+        # Calculate time window
         samples_per_minute = int(60 * sampling_frequency)
         max_samples = min(int(minutes_to_plot * samples_per_minute), recording_data.shape[1])
         
-        for i in range(num_channels_to_plot):
-            # Lấy dữ liệu từ giữa signal
+        # Select channels to display (prefer standard EEG channels)
+        channel_indices = []
+        if len(channels) >= num_channels_to_plot:
+            # Try to select key EEG channels first
+            priority_channels = ['Fp1', 'Fp2', 'F3', 'F4', 'C3', 'C4', 'P3', 'P4', 'O1', 'O2', 'Fz', 'Cz']
+            selected_channels = []
+            
+            # First, try to find priority channels
+            for priority_ch in priority_channels:
+                if priority_ch in channels and len(selected_channels) < num_channels_to_plot:
+                    idx = channels.index(priority_ch)
+                    channel_indices.append(idx)
+                    selected_channels.append(priority_ch)
+            
+            # If not enough priority channels, add others
+            while len(channel_indices) < num_channels_to_plot:
+                for i, ch in enumerate(channels):
+                    if i not in channel_indices and len(channel_indices) < num_channels_to_plot:
+                        channel_indices.append(i)
+                        break
+        else:
+            channel_indices = list(range(num_channels_to_plot))
+        
+        # Plot signals
+        for plot_idx, ch_idx in enumerate(channel_indices):
+            # Get data from middle of signal for better representation
             start_idx = max(0, recording_data.shape[1]//2 - max_samples//2)
             end_idx = start_idx + max_samples
             
-            signal_data = recording_data[i, start_idx:end_idx]
+            signal_data = recording_data[ch_idx, start_idx:end_idx]
             time_axis = np.arange(len(signal_data)) / sampling_frequency / 60  # Convert to minutes
             
-            axes[i].plot(time_axis, signal_data, linewidth=0.5)
-            channel_name = channels[i] if i < len(channels) else f"Channel_{i}"
-            axes[i].set_title(f"{channel_name}", fontsize=12)
-            axes[i].set_ylabel("μV", fontsize=10)
-            axes[i].grid(True, alpha=0.3)
+            # Plot with appropriate styling
+            axes[plot_idx].plot(time_axis, signal_data, 'b-', linewidth=0.8, alpha=0.8)
+            
+            # Set channel name
+            channel_name = channels[ch_idx] if ch_idx < len(channels) else f"EEG_{ch_idx}"
+            axes[plot_idx].set_title(f"Channel: {channel_name}", fontsize=12, fontweight='bold')
+            axes[plot_idx].set_ylabel("Amplitude (μV)", fontsize=10)
+            axes[plot_idx].grid(True, alpha=0.3, linestyle='--')
+            
+            # Improve y-axis scaling
+            signal_std = np.std(signal_data)
+            signal_mean = np.mean(signal_data)
+            y_range = 4 * signal_std  # Show ±4 standard deviations
+            axes[plot_idx].set_ylim([signal_mean - y_range, signal_mean + y_range])
+            
+            # Format axes
+            axes[plot_idx].tick_params(axis='both', which='major', labelsize=9)
         
-        axes[-1].set_xlabel("Time (minutes)", fontsize=10)
-        plt.suptitle(f"EEG Signals - Patient {patient_id}", fontsize=14)
+        # Set common x-label
+        axes[-1].set_xlabel("Time (minutes)", fontsize=12, fontweight='bold')
+        
+        # Overall title and layout
+        fig.suptitle(f"EEG Signals - Patient {patient_id}\n"
+                    f"Sampling Rate: {sampling_frequency} Hz | Duration: {minutes_to_plot} min", 
+                    fontsize=14, fontweight='bold')
+        
         plt.tight_layout()
+        plt.subplots_adjust(top=0.92)  # Make room for title
         
-        st.write("✅ Plot created successfully")
         return fig
         
     except Exception as e:
-        st.error(f"Error in visualize_eeg_signals_safe: {str(e)}")
-        st.exception(e)
+        st.error(f"Error in EEG visualization: {str(e)}")
         return None
 
 def extract_uploaded_files(uploaded_files, temp_dir):
