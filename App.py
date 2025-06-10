@@ -72,7 +72,7 @@ def get_model_functions(model_module_name, model_type="pure"):
         if model_type == "stacking":
             run_models_func = getattr(module, 'run_challenge_models')
             load_models_func = getattr(module, 'get_challenge_models')
-            return load_models_func, run_models_func  # Chỉ trả về run_challenge_models, không có load_challenge_models
+            return load_models_func, run_models_func
         else:
             load_models_func = getattr(module, 'load_challenge_models')
             run_models_func = getattr(module, 'run_challenge_models')
@@ -116,14 +116,17 @@ class EEGPredictor:
         self.load_challenge_models_dynamic = load_func
         self.run_challenge_models_dynamic = run_func
 
-    def load_models(self, model_physical_folder):
+    def load_models(self, model_physical_folder, type='normal'):
         if not self.load_challenge_models_dynamic:
             st.error("❌ Hàm tải model chưa được thiết lập. Vui lòng chọn model hợp lệ.")
             return False
         try:
             if not self.is_loaded:
                 with st.spinner(f"Đang tải models cho {self.current_model_name} từ {model_physical_folder}..."):
-                    self.models = self.load_challenge_models_dynamic(model_physical_folder, verbose=1)
+                    if (type=='stacking'):
+                        self.models = self.load_challenge_models_dynamic(model_physical_folder, 'densenet121')
+                    else:    
+                        self.models = self.load_challenge_models_dynamic(model_physical_folder, verbose=1)
                     self.is_loaded = True
                 st.success(f"✅ Models cho {self.current_model_name} từ {model_physical_folder} đã được tải thành công!")
             else:
@@ -641,7 +644,10 @@ def main():
         if st.session_state.predictor.load_challenge_models_dynamic:
             with st.spinner(f"Đang tải {selected_model_display_name} ({model_type})..."):
                 try:
-                    st.session_state.predictor.load_models(selected_model_physical_path)
+                    if (model_type == 'stacking'):
+                        st.session_state.predictor.load_models(selected_model_physical_path, type='stacking')
+                    else:
+                        st.session_state.predictor.load_models(selected_model_physical_path)
                     st.sidebar.success(f"✅ Đã tải thành công {selected_model_display_name} ({model_type})")
                 except Exception as e:
                     st.sidebar.error(f"❌ Lỗi khi tải model: {str(e)}")
