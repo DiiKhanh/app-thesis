@@ -316,17 +316,17 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
             channels_to_plot = st.number_input(
                 "Số kênh hiển thị:",
                 min_value=1,
-                max_value=8,
-                value=4,
+                max_value=22,
+                value=19,
                 help="Số lượng kênh EEG để hiển thị",
                 key="channels_input"
             )
         with viz_col2:
-            minutes_to_plot = st.number_input(
+            min_to_plot = st.number_input(
                 "Thời gian (phút):",
                 min_value=0.5,
                 max_value=10.0,
-                value=2.0,
+                value=5.0,
                 step=0.5,
                 help="Thời gian tín hiệu EEG để hiển thị",
                 key="minutes_input"
@@ -371,7 +371,8 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
                 patient_source_path,
                 selected_patient,
                 int(channels_to_plot),
-                float(minutes_to_plot)
+                float(min_to_plot),
+                selected_result['Actual']
             )
             
             if fig:
@@ -386,7 +387,7 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
                     - **Prediction**: {selected_result['Prediction']}
                     - **Actual Outcome**: {selected_result['Actual']}
                     - **Số kênh hiển thị**: {int(channels_to_plot)} kênh EEG chuẩn
-                    - **Thời gian**: {float(minutes_to_plot)} phút (từ giữa recording)
+                    - **Thời gian**: {float(min_to_plot)} phút (từ giữa recording)
                     - **Model sử dụng**: {selected_model_display_name} ({model_type})
                     
                     **Tên kênh EEG chuẩn**: Fp1, Fp2, F7, F8, F3, F4, T3, T4, C3, C4, T5, T6, P3, P4, O1, O2, Fz, Cz, Pz, Fpz, Oz, F9
@@ -404,7 +405,7 @@ def select_n_labels(labels, n):
     indices = np.linspace(0, len(labels)-1, n, dtype=int)
     return [labels[i] for i in indices]
 
-def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot=4, minutes_to_plot=2):
+def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot=19, min_to_plot=5, actual_outcome=None):
     """Create EEG visualization with proper channel names and clean display"""
     try:
         # Find .mat and .hea files in folder
@@ -426,68 +427,67 @@ def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot
         if recording_data is None:
             return None
         
+        # Extract recording ID from filename (similar to example)
+        recording_id = base_name.split('_')[-1] if '_' in base_name else base_name
+        
         # Calculate time window parameters
-        samples_per_minute = int(60 * sampling_frequency)
-        i_to_plot = int(minutes_to_plot * samples_per_minute)
+        i_to_plot = int(min_to_plot * 60 * sampling_frequency)
+        num_channels = recording_data.shape[0]
         sig_len = recording_data.shape[1]
         signal_mid = sig_len // 2
-        signal_start = max(0, int(signal_mid - i_to_plot//2))
-        signal_end = min(sig_len, int(signal_mid + i_to_plot//2))
+        signal_start = int(signal_mid - i_to_plot//2)
+        signal_end = int(signal_mid + i_to_plot//2)
         
         # Select channels randomly (similar to reference code)
-        num_channels = recording_data.shape[0]
         num_channels_to_plot = min(channels_to_plot, num_channels)
         
         # Set random seed for reproducible results
-        np.random.seed(42)
+        np.random.seed(2)
         rand_channel_ids = np.random.choice(num_channels, num_channels_to_plot, replace=False)
         rand_channels = [channels[i] if i < len(channels) else f"EEG_{i}" for i in rand_channel_ids]
         
-        # Extract signal segments from middle of recording
-        rand_signal_selection = []
-        for ch_idx in rand_channel_ids:
-            signal_segment = recording_data[ch_idx, signal_start:signal_end]
-            rand_signal_selection.append(signal_segment)
+        # Extract signal segments from middle of recording (similar to example)
+        rand_signals = recording_data[rand_channel_ids]
+        rand_signal_selection = [signal[signal_start:signal_end] for signal in rand_signals]
         
-        # Create time ticks in minutes
-        total_samples = signal_end - signal_start
-        time_minutes = np.arange(total_samples) / (60 * sampling_frequency)
+        # Create time ticks (similar to example)
+        num_ticks = 8
+        ticks = np.array(list(range(signal_start, signal_end))) / (60 * sampling_frequency)
         
-        # Set up the figure
-        fig, axs = plt.subplots(num_channels_to_plot, 1, figsize=(15, 12))
+        # Set up the figure with larger height for more channels
+        fig, axs = plt.subplots(num_channels_to_plot, 1, figsize=(15, 30))
         if num_channels_to_plot == 1:
             axs = [axs]
         
-        # Plot each channel
-        num_ticks = 8
+        # Plot each channel (following example structure)
         for i in range(num_channels_to_plot):
             # Plot the signal
-            axs[i].plot(rand_signal_selection[i], 'b-', linewidth=0.8)
+            axs[i].plot(rand_signal_selection[i])
             
-            # Set title and labels
-            axs[i].set_title(rand_channels[i], fontsize=18, fontweight='bold')
-            axs[i].set_xlabel("Time (min)", fontsize=16)
-            axs[i].set_ylabel("Voltage (μV)", fontsize=16)
-            axs[i].tick_params(axis='both', which='major', labelsize=14)
+            # Set title and labels (following example format)
+            axs[i].set_title(rand_channels[i], fontsize=20)
+            axs[i].set_xlabel("Time (min)", fontsize=18)
+            axs[i].set_ylabel("uV", fontsize=18)
+            axs[i].tick_params(axis='both', which='major', labelsize=16)
             
-            # Set up time axis with proper labels
-            time_labels = time_minutes
-            selected_labels = select_n_labels(time_labels, num_ticks)
+            # Set up time axis with proper labels (following example)
+            selected_labels = select_n_labels(ticks, num_ticks)
             selected_ticks = np.linspace(0, len(rand_signal_selection[i])-1, num_ticks, dtype=int)
             
             axs[i].set_xticks(selected_ticks)
             axs[i].set_xticklabels([f"{label:.1f}" for label in selected_labels])
-            
-            # Add grid for better readability
-            axs[i].grid(True, alpha=0.3, linestyle='--')
         
-        # Overall title
-        plt.suptitle(f"Patient {patient_id} - EEG Signals\n"
-                    f"Sampling Rate: {sampling_frequency} Hz | Duration: {minutes_to_plot} min", 
-                    fontsize=20, fontweight='bold')
+        # Overall title (following example format)
+        if actual_outcome:
+            outcome = "good" if actual_outcome == 'Good' else "poor"
+            plt.suptitle(f"Patient {patient_id} with {outcome} outcome from recording {recording_id}", 
+                        fontsize=22)
+        else:
+            plt.suptitle(f"Patient {patient_id} from recording {recording_id}", 
+                        fontsize=22)
         
-        # Adjust layout
-        plt.subplots_adjust(hspace=0.6, top=0.85)
+        # Adjust layout (following example)
+        plt.subplots_adjust(hspace=0.3)
         
         return fig
         
