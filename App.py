@@ -213,7 +213,7 @@ def debug_folder_structure(base_path, level=0, max_level=3):
     return debug_info
 
 def load_recording_data(recording_location):
-    """Load EEG recording data from .mat file"""
+    """Load EEG recording data from .mat file with improved .hea parsing"""
     try:
         mat_file = recording_location + '.mat'
         hea_file = recording_location + '.hea'
@@ -248,7 +248,7 @@ def load_recording_data(recording_location):
                 lines = f.readlines()
                 
                 if lines:
-                    # First line contains basic info
+                    # First line contains: record_name num_channels sampling_freq duration
                     first_line = lines[0].strip().split()
                     if len(first_line) >= 3:
                         try:
@@ -257,11 +257,15 @@ def load_recording_data(recording_location):
                             pass  # Use default
                     
                     # Following lines contain channel info
+                    # Format: filename format gain(baseline)/units resolution checksum blocksize channel_name
                     for line in lines[1:]:
-                        if line.strip():
-                            parts = line.strip().split()
-                            if len(parts) >= 2:
-                                channels.append(parts[1])
+                        line = line.strip()
+                        if line and not line.startswith('#'):  # Skip comments
+                            parts = line.split()
+                            if len(parts) >= 9:  # Ensure we have enough parts
+                                # The channel name is the last part (index -1)
+                                channel_name = parts[-1]
+                                channels.append(channel_name)
         
         # If no channels from header, use standard EEG channel names
         if not channels:
@@ -322,15 +326,25 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
                 key="channels_input"
             )
         with viz_col2:
-            min_to_plot = st.number_input(
-                "Thời gian (phút):",
-                min_value=0.5,
-                max_value=10.0,
-                value=5.0,
-                step=0.5,
-                help="Thời gian tín hiệu EEG để hiển thị",
-                key="minutes_input"
+            display_full_time = st.checkbox(
+                "Hiển thị full thời gian",
+                value=False,
+                help="Chọn để hiển thị toàn bộ tín hiệu, bỏ chọn để hiển thị một phần",
+                key="full_time_checkbox"
             )
+            
+            if not display_full_time:
+                min_to_plot = st.number_input(
+                    "Thời gian (phút):",
+                    min_value=0.5,
+                    max_value=10.0,
+                    value=5.0,
+                    step=0.5,
+                    help="Thời gian tín hiệu EEG để hiển thị từ giữa recording",
+                    key="minutes_input"
+                )
+            else:
+                min_to_plot = None
     
     # Display patient info
     try:
@@ -371,8 +385,9 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
                 patient_source_path,
                 selected_patient,
                 int(channels_to_plot),
-                float(min_to_plot),
-                selected_result['Actual']
+                min_to_plot,
+                selected_result['Actual'],
+                display_full_time
             )
             
             if fig:
@@ -381,16 +396,17 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
                 
                 # Additional info
                 with st.expander("ℹ️ Thông tin về EEG Visualization", expanded=False):
+                    time_info = "Toàn bộ thời gian recording" if display_full_time else f"{min_to_plot} phút (từ giữa recording)"
                     st.markdown(f"""
                     **Thông tin hiển thị:**
                     - **Patient ID**: {selected_patient}
                     - **Prediction**: {selected_result['Prediction']}
                     - **Actual Outcome**: {selected_result['Actual']}
-                    - **Số kênh hiển thị**: {int(channels_to_plot)} kênh EEG chuẩn
-                    - **Thời gian**: {float(min_to_plot)} phút (từ giữa recording)
+                    - **Số kênh hiển thị**: {int(channels_to_plot)} kênh EEG
+                    - **Thời gian**: {time_info}
                     - **Model sử dụng**: {selected_model_display_name} ({model_type})
                     
-                    **Tên kênh EEG chuẩn**: Fp1, Fp2, F7, F8, F3, F4, T3, T4, C3, C4, T5, T6, P3, P4, O1, O2, Fz, Cz, Pz, Fpz, Oz, F9
+                    **Tên kênh EEG được đọc từ file .hea**
                     """)
             else:
                 st.error("❌ Không thể tạo visualization cho patient này.")
@@ -405,8 +421,8 @@ def select_n_labels(labels, n):
     indices = np.linspace(0, len(labels)-1, n, dtype=int)
     return [labels[i] for i in indices]
 
-def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot=19, min_to_plot=5, actual_outcome=None):
-    """Create EEG visualization with proper channel names and clean display"""
+def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot=19, min_to_plot=5, actual_outcome=None, display_full_time=False):
+    """Create EEG visualization with proper channel names and flexible time display"""
     try:
         # Find .mat and .hea files in folder
         files = os.listdir(patient_folder_path)
@@ -427,18 +443,26 @@ def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot
         if recording_data is None:
             return None
         
-        # Extract recording ID from filename (similar to example)
+        # Extract recording ID from filename
         recording_id = base_name.split('_')[-1] if '_' in base_name else base_name
         
         # Calculate time window parameters
-        i_to_plot = int(min_to_plot * 60 * sampling_frequency)
         num_channels = recording_data.shape[0]
         sig_len = recording_data.shape[1]
-        signal_mid = sig_len // 2
-        signal_start = int(signal_mid - i_to_plot//2)
-        signal_end = int(signal_mid + i_to_plot//2)
         
-        # Select channels randomly (similar to reference code)
+        if display_full_time or min_to_plot is None:
+            # Display full signal
+            signal_start = 0
+            signal_end = sig_len
+            i_to_plot = sig_len
+        else:
+            # Display portion from middle
+            i_to_plot = int(min_to_plot * 60 * sampling_frequency)
+            signal_mid = sig_len // 2
+            signal_start = max(0, int(signal_mid - i_to_plot//2))
+            signal_end = min(sig_len, int(signal_mid + i_to_plot//2))
+        
+        # Select channels randomly for reproducible results
         num_channels_to_plot = min(channels_to_plot, num_channels)
         
         # Set random seed for reproducible results
@@ -446,48 +470,54 @@ def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot
         rand_channel_ids = np.random.choice(num_channels, num_channels_to_plot, replace=False)
         rand_channels = [channels[i] if i < len(channels) else f"EEG_{i}" for i in rand_channel_ids]
         
-        # Extract signal segments from middle of recording (similar to example)
+        # Extract signal segments
         rand_signals = recording_data[rand_channel_ids]
         rand_signal_selection = [signal[signal_start:signal_end] for signal in rand_signals]
         
-        # Create time ticks (similar to example)
+        # Create time ticks
         num_ticks = 8
-        ticks = np.array(list(range(signal_start, signal_end))) / (60 * sampling_frequency)
+        total_time_minutes = (signal_end - signal_start) / (60 * sampling_frequency)
+        start_time_minutes = signal_start / (60 * sampling_frequency)
         
-        # Set up the figure with larger height for more channels
-        fig, axs = plt.subplots(num_channels_to_plot, 1, figsize=(15, 30))
+        # Set up the figure with appropriate height
+        fig_height = max(15, num_channels_to_plot * 2)  # Dynamic height based on channels
+        fig, axs = plt.subplots(num_channels_to_plot, 1, figsize=(15, fig_height))
         if num_channels_to_plot == 1:
             axs = [axs]
         
-        # Plot each channel (following example structure)
+        # Plot each channel
         for i in range(num_channels_to_plot):
             # Plot the signal
-            axs[i].plot(rand_signal_selection[i])
+            axs[i].plot(rand_signal_selection[i], linewidth=0.8)
             
-            # Set title and labels (following example format)
-            axs[i].set_title(rand_channels[i], fontsize=20)
+            # Set title with proper channel name
+            axs[i].set_title(rand_channels[i], fontsize=20, fontweight='bold')
             axs[i].set_xlabel("Time (min)", fontsize=18)
-            axs[i].set_ylabel("uV", fontsize=18)
+            axs[i].set_ylabel("μV", fontsize=18)  # Proper mu symbol
             axs[i].tick_params(axis='both', which='major', labelsize=16)
+            axs[i].grid(True, alpha=0.3)  # Add subtle grid
             
-            # Set up time axis with proper labels (following example)
-            selected_labels = select_n_labels(ticks, num_ticks)
-            selected_ticks = np.linspace(0, len(rand_signal_selection[i])-1, num_ticks, dtype=int)
+            # Set up time axis with proper labels
+            signal_length = len(rand_signal_selection[i])
+            selected_ticks = np.linspace(0, signal_length-1, num_ticks, dtype=int)
+            time_labels = np.linspace(start_time_minutes, start_time_minutes + total_time_minutes, num_ticks)
             
             axs[i].set_xticks(selected_ticks)
-            axs[i].set_xticklabels([f"{label:.1f}" for label in selected_labels])
+            axs[i].set_xticklabels([f"{label:.1f}" for label in time_labels])
         
-        # Overall title (following example format)
+        # Overall title
+        time_desc = "full recording" if display_full_time else f"{min_to_plot:.1f} min from middle"
         if actual_outcome:
             outcome = "good" if actual_outcome == 'Good' else "poor"
-            plt.suptitle(f"Patient {patient_id} with {outcome} outcome from recording {recording_id}", 
-                        fontsize=22)
+            plt.suptitle(f"Patient {patient_id} with {outcome} outcome from recording {recording_id} ({time_desc})", 
+                        fontsize=22, fontweight='bold')
         else:
-            plt.suptitle(f"Patient {patient_id} from recording {recording_id}", 
-                        fontsize=22)
+            plt.suptitle(f"Patient {patient_id} from recording {recording_id} ({time_desc})", 
+                        fontsize=22, fontweight='bold')
         
-        # Adjust layout (following example)
-        plt.subplots_adjust(hspace=0.3)
+        # Adjust layout
+        plt.tight_layout()
+        plt.subplots_adjust(top=0.95, hspace=0.4)  # Leave space for title and between plots
         
         return fig
         
