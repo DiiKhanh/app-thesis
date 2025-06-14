@@ -508,12 +508,13 @@ def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot
             axs[i].set_xticks(selected_ticks)
             axs[i].set_xticklabels([f"{label:.1f}" for label in time_labels])
             
-            # Improve y-axis scaling and appearance
+            # Improve y-axis scaling and appearance - FIX FOR MISSING DATA
             y_data = rand_signal_selection[i]
-            y_range = np.ptp(y_data)  # Peak-to-peak range
-            y_center = np.mean(y_data)
-            y_margin = y_range * 0.1  # 10% margin
-            axs[i].set_ylim(y_center - y_range/2 - y_margin, y_center + y_range/2 + y_margin)
+            y_min = np.min(y_data)
+            y_max = np.max(y_data)
+            y_range = y_max - y_min
+            y_margin = y_range * 0.05  # 5% margin on each side
+            axs[i].set_ylim(y_min - y_margin, y_max + y_margin)
             
             # Format y-axis labels to avoid scientific notation for small numbers
             axs[i].ticklabel_format(style='plain', axis='y')
