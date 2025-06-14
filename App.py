@@ -182,36 +182,6 @@ class EEGPredictor:
             st.error(f"Lỗi khi predict patient {patient_id} với {self.current_model_name}: {str(e)}")
             return None, None, None
 
-def debug_folder_structure(base_path, level=0, max_level=3):
-    debug_info = []
-    if level > max_level:
-        return debug_info
-    try:
-        items = os.listdir(base_path)
-        for item in items:
-            item_path = os.path.join(base_path, item)
-            indent = "  " * level
-            if os.path.isdir(item_path):
-                debug_info.append(f"{indent}📁 {item}/")
-                try:
-                    files = os.listdir(item_path)
-                    hea_files = [f for f in files if f.endswith('.hea')]
-                    mat_files = [f for f in files if f.endswith('.mat')]
-                    if hea_files or mat_files:
-                        debug_info.append(f"{indent}  → .hea files: {len(hea_files)}, .mat files: {len(mat_files)}")
-                    if level < max_level:
-                        sub_debug = debug_folder_structure(item_path, level + 1, max_level)
-                        debug_info.extend(sub_debug)
-                except PermissionError:
-                    debug_info.append(f"{indent}  → (Permission denied)")
-            else:
-                file_ext = os.path.splitext(item)[1]
-                if file_ext in ['.hea', '.mat', '.txt']:
-                    debug_info.append(f"{indent}📄 {item}")
-    except Exception as e:
-        debug_info.append(f"{indent}❌ Error reading {base_path}: {str(e)}")
-    return debug_info
-
 def load_recording_data(recording_location):
     """Load EEG recording data from .mat file with improved .hea parsing"""
     try:
@@ -570,12 +540,6 @@ def find_patient_folders(base_path, debug_mode=False):
     if debug_mode:
         st.info(f"🔍 Scanning directory: {base_path}")
         st.markdown("**📁 Folder Structure (during find_patient_folders):**")
-        debug_info = debug_folder_structure(base_path, max_level=2)
-        if debug_info:
-            for line in debug_info[:30]:
-                st.text(line)
-            if len(debug_info) > 30:
-                st.text(f"... and {len(debug_info) - 30} more items")
     for root, dirs, files in os.walk(base_path):
         hea_files = [f for f in files if f.endswith('.hea')]
         mat_files = [f for f in files if f.endswith('.mat')]
@@ -597,7 +561,6 @@ def main():
     show_header()
     # HEADER & SIDEBAR CONFIGURATION
     st.sidebar.header("⚙️ Cấu hình")
-    debug_mode = st.sidebar.checkbox("🐛 Debug Mode", value=False, help="Show detailed folder structure and debugging info")
 
     # --- Model Type Selection ---
     st.sidebar.subheader("🎯 Chọn Phiên Bản Model")
@@ -662,19 +625,6 @@ def main():
     else:
         selected_model_module_name = model_config[selected_model_display_name]["module"]
         selected_model_physical_path = model_config[selected_model_display_name]["path"][model_type]
-
-    # Debug information
-    if debug_mode:
-        st.sidebar.subheader("🐛 Debug Information")
-        st.sidebar.code(f"""
-    Current Directory: {current_dir}
-    Pure Directory: {pure_dir}
-    Improvement Directory: {improvement_dir}
-    Stacking Directory: {stacking_dir}
-    Selected Module: {model_type}.{selected_model_module_name}
-    Model Path: {selected_model_physical_path}
-    Sys Path: {sys.path[-3:]}  # Last 3 entries
-        """)
 
     # --- Initialize Predictor ---
     if 'predictor' not in st.session_state:
@@ -748,7 +698,6 @@ def main():
                 return
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            if debug_mode: st.info(f"🔧 Debug: Using temp directory: {temp_dir}")
             # st.info("📦 Đang xử lý files upload...") # Can be noisy
             base_extraction_path = temp_dir
             for uploaded_file in uploaded_files:
@@ -764,34 +713,14 @@ def main():
                         continue
                 else: st.warning(f"Skipping non-ZIP file: {uploaded_file.name}")
 
-            if debug_mode:
-                st.markdown(f"### 🐛 Debug: Structure of temp_dir after extraction: {base_extraction_path}")
-                debug_tree = debug_folder_structure(base_extraction_path, max_level=2)
-                for line in debug_tree: st.text(line)
-
             st.info("🔍 Đang tìm patient folders...")
-            all_patient_folders_info = find_patient_folders(base_extraction_path, debug_mode=debug_mode)
+            all_patient_folders_info = find_patient_folders(base_extraction_path, debug_mode=False)
 
             if not all_patient_folders_info:
                 st.error("❌ Không tìm thấy patient data hợp lệ trong files upload.")
-                if debug_mode:
-                    st.markdown("### 🐛 Debug Help for No Patients Found:")
-                    st.markdown(f"""
-                    **Kiểm tra các vấn đề sau:**
-                    1. File ZIP có thực sự chứa các **folder con** không? (ví dụ: `patient_ID_1/`, `patient_ID_2/`)
-                    2. Mỗi folder con (ví dụ: `patient_ID_1/`) có chứa cả file `.hea` và `.mat` không?
-                    3. Tên file có đúng định dạng không?
-                    4. Cấu trúc thư mục có khớp với hướng dẫn không?
-                    **Cấu trúc thư mục được quét trong `{base_extraction_path}`:**
-                    Ví dụ: `{base_extraction_path}/0391/0391.hea` và `{base_extraction_path}/0391/0391.mat`
-                    """)
                 return
 
             st.success(f"✅ Tìm thấy {len(all_patient_folders_info)} patient(s).")
-            if debug_mode:
-                st.markdown("### 📋 Found Patients for Prediction:")
-                for patient_id, patient_original_path in all_patient_folders_info:
-                    st.text(f"  👤 {patient_id} (source: {patient_original_path})")
 
             results = []
             progress_bar = st.progress(0)
@@ -809,9 +738,6 @@ def main():
                         src_item = os.path.join(patient_original_path, item_name)
                         dst_item = os.path.join(temp_patient_run_folder, item_name)
                         if os.path.isfile(src_item): shutil.copy2(src_item, dst_item)
-                    if debug_mode:
-                        copied_files = os.listdir(temp_patient_run_folder)
-                        # st.text(f"  Copied {len(copied_files)} files to {temp_patient_run_folder} for patient {patient_id}")
                     # --- BẮT ĐẦU CODE THÊM ĐỂ HIỂN THỊ NỘI DUNG FILE .TXT ---
                     patient_txt_filename = f"{patient_id}.txt"
                     patient_txt_file_path = os.path.join(temp_patient_run_folder, patient_txt_filename)
