@@ -480,22 +480,25 @@ def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot
         start_time_minutes = signal_start / (60 * sampling_frequency)
         
         # Set up the figure with appropriate height
-        fig_height = max(15, num_channels_to_plot * 2)  # Dynamic height based on channels
-        fig, axs = plt.subplots(num_channels_to_plot, 1, figsize=(15, fig_height))
+        fig_height = max(14, num_channels_to_plot * 4)  # Increased base height and multiplier for better spacing
+        fig, axs = plt.subplots(num_channels_to_plot, 1, figsize=(16, fig_height), dpi=100)
         if num_channels_to_plot == 1:
             axs = [axs]
-        
+
         # Plot each channel
         for i in range(num_channels_to_plot):
-            # Plot the signal
-            axs[i].plot(rand_signal_selection[i], linewidth=0.8)
+            # Plot the signal with better styling
+            axs[i].plot(rand_signal_selection[i], linewidth=0.6, color='#1f77b4', alpha=0.8)
             
-            # Set title with proper channel name
-            axs[i].set_title(rand_channels[i], fontsize=20, fontweight='bold')
-            axs[i].set_xlabel("Time (min)", fontsize=18)
-            axs[i].set_ylabel("μV", fontsize=18)  # Proper mu symbol
-            axs[i].tick_params(axis='both', which='major', labelsize=16)
-            axs[i].grid(True, alpha=0.3)  # Add subtle grid
+            # Set title with proper channel name - INCREASED PAD for better separation
+            axs[i].set_title(rand_channels[i], fontsize=16, fontweight='bold', pad=20)  # Increased pad and reduced fontsize
+            axs[i].set_xlabel("Time (min)", fontsize=14)
+            axs[i].set_ylabel("μV", fontsize=14)
+            axs[i].tick_params(axis='both', which='major', labelsize=12)
+            
+            # Improve grid appearance
+            axs[i].grid(True, alpha=0.2, linestyle='-', linewidth=0.5)
+            axs[i].set_axisbelow(True)  # Put grid behind the data
             
             # Set up time axis with proper labels
             signal_length = len(rand_signal_selection[i])
@@ -504,21 +507,40 @@ def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot
             
             axs[i].set_xticks(selected_ticks)
             axs[i].set_xticklabels([f"{label:.1f}" for label in time_labels])
-        
-        # Overall title
+            
+            # Improve y-axis scaling and appearance
+            y_data = rand_signal_selection[i]
+            y_range = np.ptp(y_data)  # Peak-to-peak range
+            y_center = np.mean(y_data)
+            y_margin = y_range * 0.1  # 10% margin
+            axs[i].set_ylim(y_center - y_range/2 - y_margin, y_center + y_range/2 + y_margin)
+            
+            # Format y-axis labels to avoid scientific notation for small numbers
+            axs[i].ticklabel_format(style='plain', axis='y')
+            
+            # Add subtle background color
+            axs[i].set_facecolor('#fafafa')
+
+        # Overall title with better positioning
         time_desc = "full recording" if display_full_time else f"{min_to_plot:.1f} min from middle"
         if actual_outcome:
             outcome = "good" if actual_outcome == 'Good' else "poor"
-            plt.suptitle(f"Patient {patient_id} with {outcome} outcome from recording {recording_id} ({time_desc})", 
-                        fontsize=22, fontweight='bold')
+            title_text = f"Patient {patient_id} with {outcome} outcome from recording {recording_id} ({time_desc})"
         else:
-            plt.suptitle(f"Patient {patient_id} from recording {recording_id} ({time_desc})", 
-                        fontsize=22, fontweight='bold')
-        
-        # Adjust layout
+            title_text = f"Patient {patient_id} from recording {recording_id} ({time_desc})"
+
+        # ADJUSTED TITLE POSITION - much closer to the plot
+        plt.suptitle(title_text, fontsize=18, fontweight='bold', y=0.96)  # Reduced fontsize and adjusted position
+
+        # IMPROVED LAYOUT ADJUSTMENT - better spacing control
         plt.tight_layout()
-        plt.subplots_adjust(top=0.95, hspace=0.4)  # Leave space for title and between plots
-        
+        plt.subplots_adjust(top=0.93, hspace=0.5, bottom=0.08)  # Increased hspace significantly, adjusted top and bottom
+
+        # Optional: Add a subtle border around the entire figure
+        fig.patch.set_facecolor('white')
+        fig.patch.set_edgecolor('lightgray')
+        fig.patch.set_linewidth(1)
+
         return fig
         
     except Exception as e:
