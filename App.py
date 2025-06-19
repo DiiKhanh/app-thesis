@@ -99,7 +99,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 # Tăng giới hạn upload file lên 1GB
-st.session_state["_file_uploader_max_size_mb"] = 1024
 st.markdown(load_css(), unsafe_allow_html=True)
 
 class EEGPredictor:
@@ -259,25 +258,17 @@ def load_recording_data(recording_location):
         return None, None, None
 
 def add_eeg_visualization_section(results, all_patient_folders_info, selected_model_display_name, model_type):
-    """EEG visualization section with auto display and .mat file selection if multiple exist"""
-    
+    """EEG visualization section with auto display and .mat file selection if multiple exist, no reload on .mat change"""
     if not results or len([r for r in results if 'Error' not in r['Prediction']]) == 0:
         st.info("Chạy prediction trước để có thể visualize EEG signals.")
         return
-    
     st.markdown("---")
     st.header("📊 EEG Signal Visualization")
-    
-    # Get successful patients
     successful_patients = [r['Patient ID'] for r in results if 'Error' not in r['Prediction']]
-    
     if not successful_patients:
         st.info("Không có patient nào để visualize (tất cả đều gặp lỗi prediction).")
         return
-    
-    # UI controls
     col_viz1, col_viz2 = st.columns([2, 1])
-    
     with col_viz1:
         selected_patient = st.selectbox(
             "Chọn Patient để xem EEG:",
@@ -285,7 +276,6 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
             help="Chọn bệnh nhân để hiển thị tín hiệu EEG thô",
             key="patient_selector"
         )
-    
     # Tìm các file .mat cho bệnh nhân này
     patient_source_path = None
     for patient_id, patient_path in all_patient_folders_info:
@@ -295,53 +285,38 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
     mat_files = []
     if patient_source_path and os.path.isdir(patient_source_path):
         mat_files = [f for f in os.listdir(patient_source_path) if f.endswith('.mat')]
-    selected_mat_file = None
+    # Sử dụng session_state để lưu lựa chọn file .mat cho từng bệnh nhân
+    mat_file_key = f"mat_file_selector_{selected_patient}"
     if len(mat_files) > 1:
+        if mat_file_key not in st.session_state:
+            st.session_state[mat_file_key] = mat_files[0]
         selected_mat_file = st.selectbox(
             "Chọn file .mat để visualize:",
             options=mat_files,
+            index=mat_files.index(st.session_state[mat_file_key]) if st.session_state[mat_file_key] in mat_files else 0,
             help="Chọn file .mat nếu có nhiều recording cho bệnh nhân này",
-            key="mat_file_selector"
+            key=mat_file_key,
+            on_change=None  # Không reload lại trang
         )
+        st.session_state[mat_file_key] = selected_mat_file
     elif len(mat_files) == 1:
         selected_mat_file = mat_files[0]
+        st.session_state[mat_file_key] = selected_mat_file
     else:
         selected_mat_file = None
+        st.session_state[mat_file_key] = None
     with col_viz2:
-        viz_col1, viz_col2 = st.columns(2)
-        with viz_col1:
-            channels_to_plot = st.number_input(
-                "Số kênh hiển thị:",
-                min_value=1,
-                max_value=22,
-                value=19,
-                help="Số lượng kênh EEG để hiển thị",
-                key="channels_input"
-            )
-        with viz_col2:
-            display_full_time = st.checkbox(
-                "Hiển thị full thời gian",
-                value=False,
-                help="Chọn để hiển thị toàn bộ tín hiệu, bỏ chọn để hiển thị một phần",
-                key="full_time_checkbox"
-            )
-            
-            if not display_full_time:
-                min_to_plot = st.number_input(
-                    "Thời gian (phút):",
-                    min_value=0.5,
-                    max_value=10.0,
-                    value=5.0,
-                    step=0.5,
-                    help="Thời gian tín hiệu EEG để hiển thị từ giữa recording",
-                    key="minutes_input"
-                )
-            else:
-                min_to_plot = None
+        channels_to_plot = st.number_input(
+            "Số kênh hiển thị:",
+            min_value=1,
+            max_value=22,
+            value=19,
+            help="Số lượng kênh EEG để hiển thị",
+            key="channels_input"
+        )
     # Display patient info
     try:
         selected_result = next(r for r in results if r['Patient ID'] == selected_patient)
-        
         col_info1, col_info2, col_info3 = st.columns(3)
         with col_info1:
             st.metric("Patient ID", selected_patient)
@@ -354,36 +329,29 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
     except Exception as e:
         st.error(f"Error displaying patient info: {str(e)}")
         return
-    # Auto display EEG signals
     st.markdown("### 📈 EEG Signals Display")
     try:
         with st.spinner(f"Đang tải và xử lý tín hiệu EEG cho patient {selected_patient}..."):
             if not patient_source_path:
                 st.error(f"❌ Không tìm thấy đường dẫn data cho patient {selected_patient}")
                 return
-            # Nếu có nhiều file .mat, truyền tên file vào hàm visualize
             fig = visualize_eeg_signals_safe(
                 patient_source_path,
                 selected_patient,
                 int(channels_to_plot),
-                min_to_plot,
-                selected_result['Actual'],
-                display_full_time,
-                selected_mat_file
+                actual_outcome=selected_result['Actual'],
+                selected_mat_file=st.session_state[mat_file_key]
             )
             if fig:
                 st.pyplot(fig)
-                plt.close(fig)  # Clean up to prevent memory issues
-                # Additional info
+                plt.close(fig)
                 with st.expander("ℹ️ Thông tin về EEG Visualization", expanded=False):
-                    time_info = "Toàn bộ thời gian recording" if display_full_time else f"{min_to_plot} phút (từ giữa recording)"
                     st.markdown(f"""
                     **Thông tin hiển thị:**
                     - **Patient ID**: {selected_patient}
                     - **Prediction**: {selected_result['Prediction']}
                     - **Actual Outcome**: {selected_result['Actual']}
                     - **Số kênh hiển thị**: {int(channels_to_plot)} kênh EEG
-                    - **Thời gian**: {time_info}
                     - **Model sử dụng**: {selected_model_display_name} ({model_type})
                     **Tên kênh EEG được đọc từ file .hea**
                     """)
@@ -399,130 +367,76 @@ def select_n_labels(labels, n):
     indices = np.linspace(0, len(labels)-1, n, dtype=int)
     return [labels[i] for i in indices]
 
-def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot=19, min_to_plot=5, actual_outcome=None, display_full_time=False, selected_mat_file=None):
-    """Create EEG visualization with proper channel names and flexible time display. Now supports selecting .mat file."""
+def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot=19, actual_outcome=None, selected_mat_file=None):
+    """Create EEG visualization with proper channel names. Always show full signal. Now supports selecting .mat file."""
     try:
-        # Find .mat and .hea files in folder
         files = os.listdir(patient_folder_path)
         mat_files = [f for f in files if f.endswith('.mat')]
         if not mat_files:
             st.error(f"No .mat files found in {patient_folder_path}")
             return None
-        # Chọn file .mat theo lựa chọn
         if selected_mat_file and selected_mat_file in mat_files:
             mat_file = selected_mat_file
         else:
             mat_file = mat_files[0]
         base_name = mat_file.replace('.mat', '')
         recording_location = os.path.join(patient_folder_path, base_name)
-        
-        # Load recording data
         recording_data, channels, sampling_frequency = load_recording_data(recording_location)
-        
         if recording_data is None:
             return None
-        
-        # Extract recording ID from filename
-        recording_id = base_name.split('_')[-1] if '_' in base_name else base_name
-        
-        # Calculate time window parameters
         num_channels = recording_data.shape[0]
         sig_len = recording_data.shape[1]
-        
-        if display_full_time or min_to_plot is None:
-            # Display full signal
-            signal_start = 0
-            signal_end = sig_len
-            i_to_plot = sig_len
-        else:
-            # Display portion from middle
-            i_to_plot = int(min_to_plot * 60 * sampling_frequency)
-            signal_mid = sig_len // 2
-            signal_start = max(0, int(signal_mid - i_to_plot//2))
-            signal_end = min(sig_len, int(signal_mid + i_to_plot//2))
-        
-        # Select channels randomly for reproducible results
+        # Luôn hiển thị toàn bộ tín hiệu
+        signal_start = 0
+        signal_end = sig_len
+        # Chọn số kênh
         num_channels_to_plot = min(channels_to_plot, num_channels)
-        
-        # Set random seed for reproducible results
         np.random.seed(2)
         rand_channel_ids = np.random.choice(num_channels, num_channels_to_plot, replace=False)
         rand_channels = [channels[i] if i < len(channels) else f"EEG_{i}" for i in rand_channel_ids]
-        
-        # Extract signal segments
         rand_signals = recording_data[rand_channel_ids]
         rand_signal_selection = [signal[signal_start:signal_end] for signal in rand_signals]
-        
-        # Create time ticks
         num_ticks = 8
         total_time_minutes = (signal_end - signal_start) / (60 * sampling_frequency)
         start_time_minutes = signal_start / (60 * sampling_frequency)
-        
-        # Set up the figure with appropriate height
-        fig_height = max(14, num_channels_to_plot * 4)  # Increased base height and multiplier for better spacing
+        fig_height = max(14, num_channels_to_plot * 4)
         fig, axs = plt.subplots(num_channels_to_plot, 1, figsize=(16, fig_height), dpi=100)
         if num_channels_to_plot == 1:
             axs = [axs]
-
-        # Plot each channel
         for i in range(num_channels_to_plot):
-            # Plot the signal with better styling
             axs[i].plot(rand_signal_selection[i], linewidth=0.6, color='#1f77b4', alpha=0.8)
-            
-            # Set title with proper channel name - INCREASED PAD for better separation
-            axs[i].set_title(rand_channels[i], fontsize=16, fontweight='bold', pad=20)  # Increased pad and reduced fontsize
+            axs[i].set_title(rand_channels[i], fontsize=16, fontweight='bold', pad=20)
             axs[i].set_xlabel("Time (min)", fontsize=14)
             axs[i].set_ylabel("μV", fontsize=14)
             axs[i].tick_params(axis='both', which='major', labelsize=12)
-            
-            # Improve grid appearance
             axs[i].grid(True, alpha=0.2, linestyle='-', linewidth=0.5)
-            axs[i].set_axisbelow(True)  # Put grid behind the data
-            
-            # Set up time axis with proper labels
+            axs[i].set_axisbelow(True)
             signal_length = len(rand_signal_selection[i])
             selected_ticks = np.linspace(0, signal_length-1, num_ticks, dtype=int)
             time_labels = np.linspace(start_time_minutes, start_time_minutes + total_time_minutes, num_ticks)
-            
             axs[i].set_xticks(selected_ticks)
             axs[i].set_xticklabels([f"{label:.1f}" for label in time_labels])
-            
-            # Improve y-axis scaling and appearance - FIX FOR MISSING DATA
             y_data = rand_signal_selection[i]
             y_min = np.min(y_data)
             y_max = np.max(y_data)
             y_range = y_max - y_min
-            y_margin = y_range * 0.05  # 5% margin on each side
+            y_margin = y_range * 0.05
             axs[i].set_ylim(y_min - y_margin, y_max + y_margin)
-            
-            # Format y-axis labels to avoid scientific notation for small numbers
             axs[i].ticklabel_format(style='plain', axis='y')
-            
-            # Add subtle background color
             axs[i].set_facecolor('#fafafa')
-
-        # Overall title with better positioning
-        time_desc = "full recording" if display_full_time else f"{min_to_plot:.1f} min from middle"
+        recording_id = base_name.split('_')[-1] if '_' in base_name else base_name
         if actual_outcome:
             outcome = "good" if actual_outcome == 'Good' else "poor"
-            title_text = f"Patient {patient_id} with {outcome} outcome from recording {recording_id} ({time_desc})"
+            title_text = f"Patient {patient_id} with {outcome} outcome from recording {recording_id} (full recording)"
         else:
-            title_text = f"Patient {patient_id} from recording {recording_id} ({time_desc})"
-
-        # ADJUSTED TITLE POSITION - much closer to the plot
-        plt.suptitle(title_text, fontsize=18, fontweight='bold', y=0.96)  # Reduced fontsize and adjusted position
-
-        # IMPROVED LAYOUT ADJUSTMENT - better spacing control
+            title_text = f"Patient {patient_id} from recording {recording_id} (full recording)"
+        plt.suptitle(title_text, fontsize=18, fontweight='bold', y=0.96)
         plt.tight_layout()
-        plt.subplots_adjust(top=0.93, hspace=0.5, bottom=0.08)  # Increased hspace significantly, adjusted top and bottom
-
-        # Optional: Add a subtle border around the entire figure
+        plt.subplots_adjust(top=0.93, hspace=0.5, bottom=0.08)
         fig.patch.set_facecolor('white')
         fig.patch.set_edgecolor('lightgray')
         fig.patch.set_linewidth(1)
-
         return fig
-        
     except Exception as e:
         st.error(f"Error in EEG visualization: {str(e)}")
         return None
