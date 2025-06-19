@@ -98,6 +98,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+# Tăng giới hạn upload file lên 1GB
+st.session_state["_file_uploader_max_size_mb"] = 1024
 st.markdown(load_css(), unsafe_allow_html=True)
 
 class EEGPredictor:
@@ -257,7 +259,7 @@ def load_recording_data(recording_location):
         return None, None, None
 
 def add_eeg_visualization_section(results, all_patient_folders_info, selected_model_display_name, model_type):
-    """EEG visualization section with auto display"""
+    """EEG visualization section with auto display and .mat file selection if multiple exist"""
     
     if not results or len([r for r in results if 'Error' not in r['Prediction']]) == 0:
         st.info("Chạy prediction trước để có thể visualize EEG signals.")
@@ -284,6 +286,27 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
             key="patient_selector"
         )
     
+    # Tìm các file .mat cho bệnh nhân này
+    patient_source_path = None
+    for patient_id, patient_path in all_patient_folders_info:
+        if patient_id == selected_patient:
+            patient_source_path = patient_path
+            break
+    mat_files = []
+    if patient_source_path and os.path.isdir(patient_source_path):
+        mat_files = [f for f in os.listdir(patient_source_path) if f.endswith('.mat')]
+    selected_mat_file = None
+    if len(mat_files) > 1:
+        selected_mat_file = st.selectbox(
+            "Chọn file .mat để visualize:",
+            options=mat_files,
+            help="Chọn file .mat nếu có nhiều recording cho bệnh nhân này",
+            key="mat_file_selector"
+        )
+    elif len(mat_files) == 1:
+        selected_mat_file = mat_files[0]
+    else:
+        selected_mat_file = None
     with col_viz2:
         viz_col1, viz_col2 = st.columns(2)
         with viz_col1:
@@ -315,7 +338,6 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
                 )
             else:
                 min_to_plot = None
-    
     # Display patient info
     try:
         selected_result = next(r for r in results if r['Patient ID'] == selected_patient)
@@ -332,38 +354,26 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
     except Exception as e:
         st.error(f"Error displaying patient info: {str(e)}")
         return
-    
     # Auto display EEG signals
     st.markdown("### 📈 EEG Signals Display")
-    
     try:
         with st.spinner(f"Đang tải và xử lý tín hiệu EEG cho patient {selected_patient}..."):
-            
-            # Find patient source path
-            patient_source_path = None
-            for patient_id, patient_path in all_patient_folders_info:
-                if patient_id == selected_patient:
-                    patient_source_path = patient_path
-                    break
-            
             if not patient_source_path:
                 st.error(f"❌ Không tìm thấy đường dẫn data cho patient {selected_patient}")
                 return
-            
-            # Create visualization
+            # Nếu có nhiều file .mat, truyền tên file vào hàm visualize
             fig = visualize_eeg_signals_safe(
                 patient_source_path,
                 selected_patient,
                 int(channels_to_plot),
                 min_to_plot,
                 selected_result['Actual'],
-                display_full_time
+                display_full_time,
+                selected_mat_file
             )
-            
             if fig:
                 st.pyplot(fig)
                 plt.close(fig)  # Clean up to prevent memory issues
-                
                 # Additional info
                 with st.expander("ℹ️ Thông tin về EEG Visualization", expanded=False):
                     time_info = "Toàn bộ thời gian recording" if display_full_time else f"{min_to_plot} phút (từ giữa recording)"
@@ -375,12 +385,10 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
                     - **Số kênh hiển thị**: {int(channels_to_plot)} kênh EEG
                     - **Thời gian**: {time_info}
                     - **Model sử dụng**: {selected_model_display_name} ({model_type})
-                    
                     **Tên kênh EEG được đọc từ file .hea**
                     """)
             else:
                 st.error("❌ Không thể tạo visualization cho patient này.")
-                
     except Exception as e:
         st.error(f"❌ Lỗi khi tạo EEG visualization: {str(e)}")
 
@@ -391,19 +399,20 @@ def select_n_labels(labels, n):
     indices = np.linspace(0, len(labels)-1, n, dtype=int)
     return [labels[i] for i in indices]
 
-def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot=19, min_to_plot=5, actual_outcome=None, display_full_time=False):
-    """Create EEG visualization with proper channel names and flexible time display"""
+def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot=19, min_to_plot=5, actual_outcome=None, display_full_time=False, selected_mat_file=None):
+    """Create EEG visualization with proper channel names and flexible time display. Now supports selecting .mat file."""
     try:
         # Find .mat and .hea files in folder
         files = os.listdir(patient_folder_path)
         mat_files = [f for f in files if f.endswith('.mat')]
-        
         if not mat_files:
             st.error(f"No .mat files found in {patient_folder_path}")
             return None
-            
-        # Use first .mat file
-        mat_file = mat_files[0]
+        # Chọn file .mat theo lựa chọn
+        if selected_mat_file and selected_mat_file in mat_files:
+            mat_file = selected_mat_file
+        else:
+            mat_file = mat_files[0]
         base_name = mat_file.replace('.mat', '')
         recording_location = os.path.join(patient_folder_path, base_name)
         
