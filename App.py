@@ -288,6 +288,7 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
     # Sử dụng session_state để lưu lựa chọn file .mat cho từng bệnh nhân
     mat_file_key = f"mat_file_selector_{selected_patient}"
     if len(mat_files) > 1:
+        # Đặt giá trị mặc định trước khi tạo widget
         if mat_file_key not in st.session_state:
             st.session_state[mat_file_key] = mat_files[0]
         selected_mat_file = st.selectbox(
@@ -296,9 +297,7 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
             index=mat_files.index(st.session_state[mat_file_key]) if st.session_state[mat_file_key] in mat_files else 0,
             help="Chọn file .mat nếu có nhiều recording cho bệnh nhân này",
             key=mat_file_key,
-            on_change=None  # Không reload lại trang
         )
-        st.session_state[mat_file_key] = selected_mat_file
     elif len(mat_files) == 1:
         selected_mat_file = mat_files[0]
         st.session_state[mat_file_key] = selected_mat_file
@@ -340,7 +339,7 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
                 selected_patient,
                 int(channels_to_plot),
                 actual_outcome=selected_result['Actual'],
-                selected_mat_file=st.session_state[mat_file_key]
+                selected_mat_file=selected_mat_file
             )
             if fig:
                 st.pyplot(fig)
