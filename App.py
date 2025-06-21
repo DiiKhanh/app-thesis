@@ -696,17 +696,17 @@ def main():
 
             progress_bar.empty()
             status_text.empty()
-            # --- EEG VISUALIZATION SECTION (SAFE VERSION) ---
-            # try:
-            #     add_eeg_visualization_section(results, all_patient_folders_info, selected_model_display_name, model_type)
-            # except Exception as e:
-            #     st.error(f"Error in EEG visualization section: {str(e)}")
-            #     st.exception(e)
-
             if results:
                 display_result(results, selected_model_display_name)
             else:
                 st.error("❌ Không có kết quả prediction nào!")
+            # --- EEG VISUALIZATION SECTION (SAFE VERSION) ---
+            try:
+                add_eeg_visualization_section(results, all_patient_folders_info, selected_model_display_name, model_type)
+            except Exception as e:
+                st.error(f"Error in EEG visualization section: {str(e)}")
+                st.exception(e)
+
 
     show_footer()
 
