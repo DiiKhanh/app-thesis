@@ -257,8 +257,69 @@ def load_recording_data(recording_location):
         st.error(f"❌ Error loading recording data: {str(e)}")
         return None, None, None
 
+def cleanup_temp_patients():
+    """Clean up temporary patient directories."""
+    temp_patients_dir = os.path.join(current_dir, "temp_patients")
+    if os.path.exists(temp_patients_dir):
+        try:
+            shutil.rmtree(temp_patients_dir)
+            st.success("✅ Đã xóa dữ liệu tạm thời.")
+        except Exception as e:
+            st.error(f"❌ Lỗi khi xóa dữ liệu tạm thời: {str(e)}")
+
+def create_patient_info_display(patient_id, selected_result):
+    """Create the patient information display with metrics."""
+    col_info1, col_info2, col_info3 = st.columns(3)
+    with col_info1:
+        st.metric("Patient ID", patient_id)
+    with col_info2:
+        pred_color = "🟢" if selected_result['Prediction'] == 'Good' else "🔴"
+        st.metric("Prediction", f"{pred_color} {selected_result['Prediction']}")
+    with col_info3:
+        actual_color = "🟢" if selected_result['Actual'] == 'Good' else ("🔴" if selected_result['Actual'] == 'Poor' else "⚫")
+        st.metric("Actual", f"{actual_color} {selected_result['Actual']}")
+
+def handle_recording_selection(patient_id, mat_files):
+    """Handle the recording file selection dropdown."""
+    dropdown_key = f"recording_select_{patient_id}"
+    selected_recording = st.selectbox(
+        "Chọn recording file:",
+        options=mat_files,
+        key=dropdown_key,
+        help="Chọn file recording để hiển thị tín hiệu EEG"
+    )
+    return selected_recording
+
+def display_eeg_visualization(patient_source_path, patient_id, selected_recording, channels_to_plot, selected_result, selected_model_display_name, model_type):
+    """Display the EEG visualization for the selected recording."""
+    with st.container():
+        st.markdown(f"**Recording file:** `{selected_recording}`")
+        with st.spinner(f"Đang tải và xử lý tín hiệu EEG cho {patient_id} - {selected_recording}..."):
+            fig = visualize_eeg_signals_safe(
+                patient_source_path,
+                patient_id,
+                int(channels_to_plot),
+                actual_outcome=selected_result['Actual'],
+                selected_mat_file=selected_recording
+            )
+            if fig:
+                st.pyplot(fig, use_container_width=True)
+                plt.close(fig)
+                st.caption(f'''
+                    **Thông tin hiển thị:**
+                    - **Patient ID**: {patient_id}
+                    - **Recording file**: `{selected_recording}`
+                    - **Prediction**: {selected_result['Prediction']}
+                    - **Actual Outcome**: {selected_result['Actual']}
+                    - **Số kênh hiển thị**: {int(channels_to_plot)} kênh EEG
+                    - **Model sử dụng**: {selected_model_display_name} ({model_type})
+                    **Tên kênh EEG được đọc từ file .hea**
+                ''')
+            else:
+                st.error(f"❌ Không thể tạo visualization cho recording {selected_recording} của patient {patient_id}.")
+
 def add_eeg_visualization_section(results, all_patient_folders_info, selected_model_display_name, model_type):
-    """EEG visualization section: visualize selected .mat files for each patient using dropdown, optimized for memory usage."""
+    """EEG visualization section: visualize selected .mat files for each patient using dropdown selection."""
     if not results or len([r for r in results if 'Error' not in r['Prediction']]) == 0:
         st.info("Chạy prediction trước để có thể visualize EEG signals.")
         return
@@ -271,307 +332,150 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
         st.info("Không có patient nào để visualize (tất cả đều gặp lỗi prediction).")
         return
     
-    # Initialize session state for visualization control
-    if 'viz_show' not in st.session_state:
-        st.session_state.viz_show = False
-    if 'current_viz_patient' not in st.session_state:
-        st.session_state.current_viz_patient = None
-    if 'current_viz_recording' not in st.session_state:
-        st.session_state.current_viz_recording = None
-    
-    # Configuration options
-    col1, col2 = st.columns(2)
-    with col1:
-        channels_to_plot = st.number_input(
-            "Số kênh hiển thị:",
-            min_value=1,
-            max_value=22,
-            value=19,
-            help="Số lượng kênh EEG để hiển thị",
-            key="channels_input"
-        )
-    
-    with col2:
-        # Add a global patient selector
-        selected_patient = st.selectbox(
-            "Chọn Patient:",
-            options=successful_patients,
-            key="patient_selector"
-        )
-        
-        # Reset visualization if patient changes
-        if selected_patient != st.session_state.current_viz_patient:
-            st.session_state.viz_show = False
-            st.session_state.current_viz_patient = selected_patient
-            st.session_state.current_viz_recording = None
-    
-    # Find the selected patient's folder
-    patient_source_path = None
-    for pid, ppath in all_patient_folders_info:
-        if pid == selected_patient:
-            patient_source_path = ppath
-            break
-    
-    if not patient_source_path or not os.path.isdir(patient_source_path):
-        st.error(f"Không tìm thấy folder cho patient {selected_patient}")
-        return
-    
-    # Get available recordings for the selected patient
-    mat_files = [f for f in os.listdir(patient_source_path) if f.endswith('.mat')]
-    if not mat_files:
-        st.error(f"Không tìm thấy file .mat nào cho patient {selected_patient}")
-        return
-    
-    # Get patient result info
-    try:
-        selected_result = next(r for r in results if r['Patient ID'] == selected_patient)
-    except Exception as e:
-        st.error(f"Error displaying patient info for {selected_patient}: {str(e)}")
-        return
-    
-    # Display patient info
-    col_info1, col_info2, col_info3 = st.columns(3)
-    with col_info1:
-        st.metric("Patient ID", selected_patient)
-    with col_info2:
-        pred_color = "🟢" if selected_result['Prediction'] == 'Good' else "🔴"
-        st.metric("Prediction", f"{pred_color} {selected_result['Prediction']}")
-    with col_info3:
-        actual_color = "🟢" if selected_result['Actual'] == 'Good' else ("🔴" if selected_result['Actual'] == 'Poor' else "⚫")
-        st.metric("Actual", f"{actual_color} {selected_result['Actual']}")
-    
-    # Recording selector with dropdown
-    st.markdown("### 📈 EEG Signals Display")
-    
-    # Create a more user-friendly recording selector
-    recording_options = [f"Recording {f.replace('.mat', '')}" for f in mat_files]
-    recording_files_dict = {f"Recording {f.replace('.mat', '')}": f for f in mat_files}
-    
-    selected_recording_display = st.selectbox(
-        "Chọn Recording để visualize:",
-        options=recording_options,
-        key=f"recording_dropdown_{selected_patient}",
-        help="Chọn recording từ danh sách để hiển thị tín hiệu EEG"
+    channels_to_plot = st.number_input(
+        "Số kênh hiển thị:",
+        min_value=1,
+        max_value=22,
+        value=19,
+        help="Số lượng kênh EEG để hiển thị",
+        key="channels_input"
     )
     
-    # Get the actual file name from the display name
-    selected_recording = recording_files_dict.get(selected_recording_display)
-    
-    # Reset visualization if recording changes
-    if selected_recording != st.session_state.current_viz_recording:
-        st.session_state.viz_show = False
-        st.session_state.current_viz_recording = selected_recording
-    
-    if selected_recording:
-        st.markdown(f"**📁 Selected Recording:** `{selected_recording}`")
+    for patient_id in successful_patients:
+        # Tìm path folder của patient
+        patient_source_path = None
+        for pid, ppath in all_patient_folders_info:
+            if pid == patient_id:
+                patient_source_path = ppath
+                break
         
-        # Control buttons
-        col1, col2, col3 = st.columns([1, 1, 2])
+        if not patient_source_path or not os.path.isdir(patient_source_path):
+            continue
         
-        with col1:
-            if st.button("🔄 Load EEG Signals", key=f"load_btn_{selected_patient}_{selected_recording}"):
-                st.session_state.viz_show = True
+        mat_files = [f for f in os.listdir(patient_source_path) if f.endswith('.mat')]
+        if not mat_files:
+            continue
         
-        with col2:
-            if st.button("❌ Clear", key=f"clear_btn_{selected_patient}_{selected_recording}"):
-                st.session_state.viz_show = False
+        # Lấy thông tin prediction/actual
+        try:
+            selected_result = next(r for r in results if r['Patient ID'] == patient_id)
+        except Exception as e:
+            st.error(f"Error displaying patient info for {patient_id}: {str(e)}")
+            continue
         
-        with col3:
-            status = "🟢 Ready to visualize" if not st.session_state.viz_show else "📊 Visualization loaded"
-            st.info(f"💡 **Status:** {status}")
-        
-        # Display visualization if requested
-        if st.session_state.viz_show:
-            st.markdown("---")
-            st.markdown("**📊 EEG Visualization:**")
+        with st.expander(f"🧑‍⚕️ Patient {patient_id} ({len(mat_files)} recording(s))", expanded=False):
+            st.markdown("### 📈 EEG Signals Display")
             
-            with st.spinner(f"🔄 Đang tải và xử lý tín hiệu EEG cho {selected_patient} - {selected_recording}..."):
-                try:
-                    fig = visualize_eeg_signals_safe(
-                        patient_source_path,
-                        selected_patient,
-                        int(channels_to_plot),
-                        actual_outcome=selected_result['Actual'],
-                        selected_mat_file=selected_recording
-                    )
-                    
-                    if fig:
-                        st.pyplot(fig, use_container_width=True)
-                        plt.close(fig)  # Immediately close to free memory
-                        
-                        st.success(f"✅ Visualization loaded successfully!")
-                        
-                        st.caption(f'''
-                            **📊 Thông tin hiển thị:**
-                            - **Patient ID**: {selected_patient}
-                            - **Recording**: {selected_recording_display}
-                            - **File**: `{selected_recording}`
-                            - **Prediction**: {selected_result['Prediction']}
-                            - **Actual Outcome**: {selected_result['Actual']}
-                            - **Số kênh hiển thị**: {int(channels_to_plot)} kênh EEG
-                            - **Model sử dụng**: {selected_model_display_name} ({model_type})
-                            - **Tên kênh EEG**: Được đọc từ file .hea
-                        ''')
-                        
-                        # Export options
-                        st.markdown("---")
-                        st.markdown("**💾 Export Options:**")
-                        col_export1, col_export2 = st.columns(2)
-                        with col_export1:
-                            if st.button("📥 Download PNG", key=f"png_{selected_patient}_{selected_recording}"):
-                                # Save and download PNG
-                                fig_path = f"eeg_{selected_patient}_{selected_recording.replace('.mat', '')}.png"
-                                fig.savefig(fig_path, dpi=150, bbox_inches='tight')
-                                with open(fig_path, "rb") as file:
-                                    st.download_button(
-                                        label="⬇️ Download PNG",
-                                        data=file.read(),
-                                        file_name=fig_path,
-                                        mime="image/png"
-                                    )
-                        with col_export2:
-                            if st.button("📊 Download SVG", key=f"svg_{selected_patient}_{selected_recording}"):
-                                # Save and download SVG
-                                fig_path = f"eeg_{selected_patient}_{selected_recording.replace('.mat', '')}.svg"
-                                fig.savefig(fig_path, format='svg', bbox_inches='tight')
-                                with open(fig_path, "rb") as file:
-                                    st.download_button(
-                                        label="⬇️ Download SVG",
-                                        data=file.read(),
-                                        file_name=fig_path,
-                                        mime="image/svg+xml"
-                                    )
-                    else:
-                        st.error(f"❌ Không thể tạo visualization cho recording {selected_recording} của patient {selected_patient}.")
-                        st.session_state.viz_show = False
-                        
-                except Exception as e:
-                    st.error(f"❌ Lỗi khi tạo visualization: {str(e)}")
-                    st.session_state.viz_show = False
-        
-        # Show recording information
-        st.markdown("---")
-        st.markdown("**📋 Recording Information:**")
-        col_info1, col_info2 = st.columns(2)
-        
-        with col_info1:
-            st.markdown(f"""
-            - **Patient**: {selected_patient}
-            - **Recording**: {selected_recording_display}
-            - **File**: {selected_recording}
-            - **Total Recordings**: {len(mat_files)}
-            """)
-        
-        with col_info2:
-            st.markdown(f"""
-            - **Prediction**: {selected_result['Prediction']}
-            - **Actual**: {selected_result['Actual']}
-            - **Channels to Display**: {channels_to_plot}
-            - **Model**: {selected_model_display_name} ({model_type})
-            """)
+            # Handle recording selection
+            selected_recording = handle_recording_selection(patient_id, mat_files)
+            
+            # Display EEG visualization if recording is selected
+            if selected_recording:
+                with st.container():
+                    st.markdown(f"**Recording file:** `{selected_recording}`")
+                    with st.spinner(f"Đang tải và xử lý tín hiệu EEG cho {patient_id} - {selected_recording}..."):
+                        fig = visualize_eeg_signals_safe(
+                            patient_source_path,
+                            patient_id,
+                            int(channels_to_plot),
+                            actual_outcome=None,
+                            selected_mat_file=selected_recording
+                        )
+                        if fig:
+                            st.pyplot(fig, use_container_width=True)
+                            plt.close(fig)
+                            st.caption(f'''
+                                **Thông tin hiển thị:**
+                                - **Patient ID**: {patient_id}
+                                - **Recording file**: `{selected_recording}`
+                                - **Số kênh hiển thị**: {int(channels_to_plot)} kênh EEG
+                                **Tên kênh EEG được đọc từ file .hea**
+                            ''')
+                        else:
+                            st.error(f"❌ Không thể tạo visualization cho recording {selected_recording} của patient {patient_id}.")
+
+def select_n_labels(labels, n):
+    """Select n evenly spaced labels from a list"""
+    if n >= len(labels):
+        return labels
+    indices = np.linspace(0, len(labels)-1, n, dtype=int)
+    return [labels[i] for i in indices]
 
 def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot=19, actual_outcome=None, selected_mat_file=None):
-    """Create EEG visualization with memory optimization. Only loads the selected recording."""
+    """Create EEG visualization with proper channel names. Always show full signal. Now supports selecting .mat file."""
     try:
-        if not selected_mat_file:
-            st.error("No recording file selected")
+        files = os.listdir(patient_folder_path)
+        mat_files = [f for f in files if f.endswith('.mat')]
+        if not mat_files:
+            st.error(f"No .mat files found in {patient_folder_path}")
             return None
-            
-        base_name = selected_mat_file.replace('.mat', '')
+        if selected_mat_file and selected_mat_file in mat_files:
+            mat_file = selected_mat_file
+        else:
+            mat_file = mat_files[0]
+        base_name = mat_file.replace('.mat', '')
         recording_location = os.path.join(patient_folder_path, base_name)
-        
-        # Load only the selected recording
         recording_data, channels, sampling_frequency = load_recording_data(recording_location)
         if recording_data is None:
             return None
-        
-        # Convert to float32 to reduce memory usage
-        recording_data = recording_data.astype(np.float32)
-        
+        recording_data = recording_data.astype(np.float32)  # Thêm dòng này
         num_channels = recording_data.shape[0]
         sig_len = recording_data.shape[1]
-        
-        # Always show full signal
+        # Luôn hiển thị toàn bộ tín hiệu
         signal_start = 0
         signal_end = sig_len
-        
-        # Select channels to plot
+        # Chọn số kênh
         num_channels_to_plot = min(channels_to_plot, num_channels)
-        np.random.seed(2)  # Consistent channel selection
+        np.random.seed(2)
         rand_channel_ids = np.random.choice(num_channels, num_channels_to_plot, replace=False)
         rand_channels = [channels[i] if i < len(channels) else f"EEG_{i}" for i in rand_channel_ids]
-        
-        # Extract only the channels we need to plot
         rand_signals = recording_data[rand_channel_ids]
         rand_signal_selection = [signal[signal_start:signal_end] for signal in rand_signals]
-        
-        # Clear the original data to free memory immediately
-        del recording_data
-        del rand_signals
-        
-        # Calculate time labels
         num_ticks = 8
         total_time_minutes = (signal_end - signal_start) / (60 * sampling_frequency)
         start_time_minutes = signal_start / (60 * sampling_frequency)
-        
-        # Create figure with optimized size
-        fig_height = max(10, num_channels_to_plot * 3)  # Further reduced height
-        fig, axs = plt.subplots(num_channels_to_plot, 1, figsize=(12, fig_height), dpi=60)  # Further reduced DPI
-        
+        fig_height = max(14, num_channels_to_plot * 4)
+        fig, axs = plt.subplots(num_channels_to_plot, 1, figsize=(16, fig_height), dpi=100)
         if num_channels_to_plot == 1:
             axs = [axs]
-        
-        # Plot each channel
         for i in range(num_channels_to_plot):
-            axs[i].plot(rand_signal_selection[i], linewidth=0.3, color='#1f77b4', alpha=0.6)  # Further reduced linewidth
-            axs[i].set_title(rand_channels[i], fontsize=12, fontweight='bold', pad=10)
-            axs[i].set_xlabel("Time (min)", fontsize=10)
-            axs[i].set_ylabel("μV", fontsize=10)
-            axs[i].tick_params(axis='both', which='major', labelsize=8)
-            axs[i].grid(True, alpha=0.1, linestyle='-', linewidth=0.2)
+            axs[i].plot(rand_signal_selection[i], linewidth=0.6, color='#1f77b4', alpha=0.8)
+            axs[i].set_title(rand_channels[i], fontsize=16, fontweight='bold', pad=20)
+            axs[i].set_xlabel("Time (min)", fontsize=14)
+            axs[i].set_ylabel("μV", fontsize=14)
+            axs[i].tick_params(axis='both', which='major', labelsize=12)
+            axs[i].grid(True, alpha=0.2, linestyle='-', linewidth=0.5)
             axs[i].set_axisbelow(True)
-            
-            # Set time labels
             signal_length = len(rand_signal_selection[i])
             selected_ticks = np.linspace(0, signal_length-1, num_ticks, dtype=int)
             time_labels = np.linspace(start_time_minutes, start_time_minutes + total_time_minutes, num_ticks)
             axs[i].set_xticks(selected_ticks)
             axs[i].set_xticklabels([f"{label:.1f}" for label in time_labels])
-            
-            # Set y-axis limits
             y_data = rand_signal_selection[i]
             y_min = np.min(y_data)
             y_max = np.max(y_data)
             y_range = y_max - y_min
             if y_range == 0:
+                # Nếu tín hiệu phẳng, đặt biên độ mặc định ±1
                 axs[i].set_ylim(y_min - 1, y_max + 1)
             else:
                 y_margin = y_range * 0.05
                 axs[i].set_ylim(y_min - y_margin, y_max + y_margin)
-            
             axs[i].ticklabel_format(style='plain', axis='y')
             axs[i].set_facecolor('#fafafa')
-        
-        # Clear signal data to free memory immediately after plotting
-        del rand_signal_selection
-        
-        # Set title
         recording_id = base_name.split('_')[-1] if '_' in base_name else base_name
         if actual_outcome:
             outcome = "good" if actual_outcome == 'Good' else "poor"
             title_text = f"Patient {patient_id} with {outcome} outcome from recording {recording_id} (full recording)"
         else:
             title_text = f"Patient {patient_id} from recording {recording_id} (full recording)"
-        
-        plt.suptitle(title_text, fontsize=14, fontweight='bold', y=0.96)
+        plt.suptitle(title_text, fontsize=18, fontweight='bold', y=0.96)
         plt.tight_layout()
-        plt.subplots_adjust(top=0.93, hspace=0.3, bottom=0.08)
+        plt.subplots_adjust(top=0.93, hspace=0.5, bottom=0.08)
         fig.patch.set_facecolor('white')
         fig.patch.set_edgecolor('lightgray')
         fig.patch.set_linewidth(1)
-        
         return fig
-        
     except Exception as e:
         st.error(f"Error in EEG visualization: {str(e)}")
         return None
@@ -853,17 +757,130 @@ def main():
 
             progress_bar.empty()
             status_text.empty()
+            
+            # Store results and patient folders info in session state for persistence
+            st.session_state.prediction_results = results
+            st.session_state.patient_folders_info = all_patient_folders_info
+            st.session_state.selected_model_display_name = selected_model_display_name
+            st.session_state.model_type = model_type
+            
             if results:
                 display_result(results, selected_model_display_name)
             else:
                 st.error("❌ Không có kết quả prediction nào!")
-            # --- EEG VISUALIZATION SECTION (SAFE VERSION) ---
-            try:
-                add_eeg_visualization_section(results, all_patient_folders_info, selected_model_display_name, model_type)
-            except Exception as e:
-                st.error(f"Error in EEG visualization section: {str(e)}")
-                st.exception(e)
 
+    # --- INDEPENDENT EEG VISUALIZATION SECTION ---
+    st.header("📊 EEG Signal Visualization")
+    
+    # Add cleanup button
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("🗑️ Xóa dữ liệu tạm", help="Xóa dữ liệu patient đã extract"):
+            cleanup_temp_patients()
+            if 'extracted_patient_folders' in st.session_state:
+                del st.session_state.extracted_patient_folders
+            st.rerun()
+    
+    if not uploaded_files:
+        st.info("📁 Vui lòng upload files EEG trước để có thể visualize tín hiệu.")
+    else:
+        # Extract and store patient folders info for visualization
+        if 'extracted_patient_folders' not in st.session_state:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                base_extraction_path = temp_dir
+                for uploaded_file in uploaded_files:
+                    file_path = os.path.join(base_extraction_path, uploaded_file.name)
+                    with open(file_path, "wb") as f: 
+                        f.write(uploaded_file.getbuffer())
+                    if uploaded_file.name.endswith('.zip'):
+                        try:
+                            with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                                zip_ref.extractall(base_extraction_path)
+                        except Exception as e:
+                            st.error(f"❌ Lỗi khi giải nén {uploaded_file.name}: {str(e)}")
+                            continue
+                
+                # Find patient folders and store their data
+                all_patient_folders_info = find_patient_folders(base_extraction_path, debug_mode=False)
+                
+                # Store patient data in session state (copy files to persistent location)
+                if all_patient_folders_info:
+                    st.session_state.extracted_patient_folders = {}
+                    for patient_id, patient_path in all_patient_folders_info:
+                        # Create a persistent directory for this patient
+                        persistent_patient_dir = os.path.join(current_dir, "temp_patients", patient_id)
+                        os.makedirs(persistent_patient_dir, exist_ok=True)
+                        
+                        # Copy all files from temp directory to persistent directory
+                        for item_name in os.listdir(patient_path):
+                            src_item = os.path.join(patient_path, item_name)
+                            dst_item = os.path.join(persistent_patient_dir, item_name)
+                            if os.path.isfile(src_item):
+                                shutil.copy2(src_item, dst_item)
+                        
+                        st.session_state.extracted_patient_folders[patient_id] = persistent_patient_dir
+                    
+                    st.success(f"✅ Đã chuẩn bị {len(all_patient_folders_info)} patient(s) cho visualization.")
+                else:
+                    st.warning("⚠️ Không tìm thấy patient data hợp lệ trong files upload.")
+        
+        # Show visualization if we have patient data
+        if 'extracted_patient_folders' in st.session_state and st.session_state.extracted_patient_folders:
+            channels_to_plot = st.number_input(
+                "Số kênh hiển thị:",
+                min_value=1,
+                max_value=22,
+                value=19,
+                help="Số lượng kênh EEG để hiển thị",
+                key="channels_input"
+            )
+            
+            for patient_id, patient_source_path in st.session_state.extracted_patient_folders.items():
+                if not os.path.isdir(patient_source_path):
+                    continue
+                
+                mat_files = [f for f in os.listdir(patient_source_path) if f.endswith('.mat')]
+                if not mat_files:
+                    continue
+                
+                # Get prediction info if available
+                prediction_info = None
+                if 'prediction_results' in st.session_state:
+                    for result in st.session_state.prediction_results:
+                        if result['Patient ID'] == patient_id:
+                            prediction_info = result
+                            break
+                
+                with st.expander(f"🧑‍⚕️ Patient {patient_id} ({len(mat_files)} recording(s))", expanded=False):
+                    st.markdown("### 📈 EEG Signals Display")
+                    
+                    # Handle recording selection
+                    selected_recording = handle_recording_selection(patient_id, mat_files)
+                    
+                    # Display EEG visualization if recording is selected
+                    if selected_recording:
+                        with st.container():
+                            st.markdown(f"**Recording file:** `{selected_recording}`")
+                            with st.spinner(f"Đang tải và xử lý tín hiệu EEG cho {patient_id} - {selected_recording}..."):
+                                fig = visualize_eeg_signals_safe(
+                                    patient_source_path,
+                                    patient_id,
+                                    int(channels_to_plot),
+                                    actual_outcome=None,
+                                    selected_mat_file=selected_recording
+                                )
+                                if fig:
+                                    st.pyplot(fig, use_container_width=True)
+                                    plt.close(fig)
+                                    st.caption(f'''
+                                        **Thông tin hiển thị:**
+                                        - **Patient ID**: {patient_id}
+                                        - **Recording file**: `{selected_recording}`
+                                        - **Số kênh hiển thị**: {int(channels_to_plot)} kênh EEG
+                                        **Tên kênh EEG được đọc từ file .hea**
+                                    ''')
+                                else:
+                                    st.error(f"❌ Không thể tạo visualization cho recording {selected_recording} của patient {patient_id}.")
 
     show_footer()
 
