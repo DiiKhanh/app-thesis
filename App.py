@@ -335,40 +335,63 @@ def add_eeg_visualization_section(results, all_patient_folders_info, selected_mo
         key=f"recording_selector_{selected_patient}"
     )
     
-    # Display selected recording
+    # Display selected recording info
     if selected_recording:
-        with st.container():
-            st.markdown(f"**Recording file:** `{selected_recording}`")
-            
-            # Add a button to trigger visualization (prevents automatic loading)
-            if st.button(f"🔄 Load EEG Signals for {selected_patient} - {selected_recording}", 
-                        key=f"load_eeg_{selected_patient}_{selected_recording}"):
+        st.markdown(f"**Recording file:** `{selected_recording}`")
+        
+        # Create a container for the visualization
+        viz_container = st.container()
+        
+        # Add a button to trigger visualization
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            if st.button(f"🔄 Load EEG Signals", 
+                        key=f"load_eeg_{selected_patient}_{selected_recording}",
+                        help="Click to load and display EEG signals"):
                 
-                with st.spinner(f"Đang tải và xử lý tín hiệu EEG cho {selected_patient} - {selected_recording}..."):
-                    fig = visualize_eeg_signals_safe(
-                        patient_source_path,
-                        selected_patient,
-                        int(channels_to_plot),
-                        actual_outcome=selected_result['Actual'],
-                        selected_mat_file=selected_recording
-                    )
-                    
-                    if fig:
-                        st.pyplot(fig, use_container_width=True)
-                        plt.close(fig)  # Immediately close to free memory
-                        
-                        st.caption(f'''
-                            **Thông tin hiển thị:**
-                            - **Patient ID**: {selected_patient}
-                            - **Recording file**: `{selected_recording}`
-                            - **Prediction**: {selected_result['Prediction']}
-                            - **Actual Outcome**: {selected_result['Actual']}
-                            - **Số kênh hiển thị**: {int(channels_to_plot)} kênh EEG
-                            - **Model sử dụng**: {selected_model_display_name} ({model_type})
-                            **Tên kênh EEG được đọc từ file .hea**
-                        ''')
-                    else:
-                        st.error(f"❌ Không thể tạo visualization cho recording {selected_recording} của patient {selected_patient}.")
+                # Clear any previous content in the container
+                viz_container.empty()
+                
+                # Load and display visualization
+                with viz_container:
+                    with st.spinner(f"Đang tải và xử lý tín hiệu EEG cho {selected_patient} - {selected_recording}..."):
+                        try:
+                            fig = visualize_eeg_signals_safe(
+                                patient_source_path,
+                                selected_patient,
+                                int(channels_to_plot),
+                                actual_outcome=selected_result['Actual'],
+                                selected_mat_file=selected_recording
+                            )
+                            
+                            if fig:
+                                st.pyplot(fig, use_container_width=True)
+                                plt.close(fig)  # Immediately close to free memory
+                                
+                                st.caption(f'''
+                                    **Thông tin hiển thị:**
+                                    - **Patient ID**: {selected_patient}
+                                    - **Recording file**: `{selected_recording}`
+                                    - **Prediction**: {selected_result['Prediction']}
+                                    - **Actual Outcome**: {selected_result['Actual']}
+                                    - **Số kênh hiển thị**: {int(channels_to_plot)} kênh EEG
+                                    - **Model sử dụng**: {selected_model_display_name} ({model_type})
+                                    **Tên kênh EEG được đọc từ file .hea**
+                                ''')
+                                
+                                # Add a clear button
+                                if st.button("❌ Clear Visualization", 
+                                           key=f"clear_viz_{selected_patient}_{selected_recording}"):
+                                    viz_container.empty()
+                                    st.rerun()
+                            else:
+                                st.error(f"❌ Không thể tạo visualization cho recording {selected_recording} của patient {selected_patient}.")
+                                
+                        except Exception as e:
+                            st.error(f"❌ Lỗi khi tạo visualization: {str(e)}")
+        
+        with col2:
+            st.info("💡 **Tip**: Click 'Load EEG Signals' to display the visualization. The plot will be cleared from memory after display.")
 
 def select_n_labels(labels, n):
     """Select n evenly spaced labels from a list"""
@@ -412,8 +435,9 @@ def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot
         rand_signals = recording_data[rand_channel_ids]
         rand_signal_selection = [signal[signal_start:signal_end] for signal in rand_signals]
         
-        # Clear the original data to free memory
+        # Clear the original data to free memory immediately
         del recording_data
+        del rand_signals
         
         # Calculate time labels
         num_ticks = 8
@@ -421,20 +445,20 @@ def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot
         start_time_minutes = signal_start / (60 * sampling_frequency)
         
         # Create figure with optimized size
-        fig_height = max(12, num_channels_to_plot * 3.5)  # Reduced height per channel
-        fig, axs = plt.subplots(num_channels_to_plot, 1, figsize=(14, fig_height), dpi=80)  # Reduced DPI
+        fig_height = max(10, num_channels_to_plot * 3)  # Further reduced height
+        fig, axs = plt.subplots(num_channels_to_plot, 1, figsize=(12, fig_height), dpi=60)  # Further reduced DPI
         
         if num_channels_to_plot == 1:
             axs = [axs]
         
         # Plot each channel
         for i in range(num_channels_to_plot):
-            axs[i].plot(rand_signal_selection[i], linewidth=0.5, color='#1f77b4', alpha=0.7)  # Reduced linewidth
-            axs[i].set_title(rand_channels[i], fontsize=14, fontweight='bold', pad=15)
-            axs[i].set_xlabel("Time (min)", fontsize=12)
-            axs[i].set_ylabel("μV", fontsize=12)
-            axs[i].tick_params(axis='both', which='major', labelsize=10)
-            axs[i].grid(True, alpha=0.15, linestyle='-', linewidth=0.3)
+            axs[i].plot(rand_signal_selection[i], linewidth=0.3, color='#1f77b4', alpha=0.6)  # Further reduced linewidth
+            axs[i].set_title(rand_channels[i], fontsize=12, fontweight='bold', pad=10)
+            axs[i].set_xlabel("Time (min)", fontsize=10)
+            axs[i].set_ylabel("μV", fontsize=10)
+            axs[i].tick_params(axis='both', which='major', labelsize=8)
+            axs[i].grid(True, alpha=0.1, linestyle='-', linewidth=0.2)
             axs[i].set_axisbelow(True)
             
             # Set time labels
@@ -458,7 +482,7 @@ def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot
             axs[i].ticklabel_format(style='plain', axis='y')
             axs[i].set_facecolor('#fafafa')
         
-        # Clear signal data to free memory
+        # Clear signal data to free memory immediately after plotting
         del rand_signal_selection
         
         # Set title
@@ -469,9 +493,9 @@ def visualize_eeg_signals_safe(patient_folder_path, patient_id, channels_to_plot
         else:
             title_text = f"Patient {patient_id} from recording {recording_id} (full recording)"
         
-        plt.suptitle(title_text, fontsize=16, fontweight='bold', y=0.96)
+        plt.suptitle(title_text, fontsize=14, fontweight='bold', y=0.96)
         plt.tight_layout()
-        plt.subplots_adjust(top=0.93, hspace=0.4, bottom=0.08)
+        plt.subplots_adjust(top=0.93, hspace=0.3, bottom=0.08)
         fig.patch.set_facecolor('white')
         fig.patch.set_edgecolor('lightgray')
         fig.patch.set_linewidth(1)
