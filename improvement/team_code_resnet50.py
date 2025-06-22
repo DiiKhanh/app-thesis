@@ -422,12 +422,13 @@ def run_challenge_models(models, data_folder, patient_id, verbose, return_eeg_to
     if ONLY_EEG_TORCH:
         outcome = agg_outcome
         outcome_probability = outcome_probability
+        segment_outcomes = segment_outcomes
     
 
     if return_eeg_torch_probs:
-        return outcome, outcome_probability
+        return outcome, outcome_probability, segment_outcomes
     else:
-        return outcome, outcome_probability
+        return outcome, outcome_probability, segment_outcomes
 
 
 ################################################################################
