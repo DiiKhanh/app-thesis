@@ -25,7 +25,7 @@ from huggingface_hub import hf_hub_download
 
 
 TRAIN_LOG_FILE_NAME = "training_log.csv"
-VOTING_POS_MAJORITY_THRESHOLD = 0.66
+VOTING_POS_MAJORITY_THRESHOLD = 0.5
 DECISION_THRESHOLD = 0.5
 PARAMS_DEVICE = {"num_workers": min(26, os.cpu_count() - 2)}
 NO_CHANNELS_W_ARTIFACT_TO_DISCARD_EPOCH = 2  # Allowed number of channels with artifacts in an epoch to still count the epoch as good
@@ -1418,7 +1418,8 @@ def run_challenge_models(model_folder, data_folder, patient_id, verbose):
     (
         outcome_probability, 
         outcome, 
-        name
+        name,
+        segment_outcomes
     ) = torch_predictions_for_patient(
         X_test_pred_proba,
         all_patient_ids[model_name],
@@ -1431,7 +1432,7 @@ def run_challenge_models(model_folder, data_folder, patient_id, verbose):
     print('Outcome: ', outcome)
     print('Outcome probability: ', outcome_probability)
     
-    return outcome, outcome_probability  
+    return outcome, outcome_probability, segment_outcomes 
     
 def torch_predictions_for_patient(
     output_list,
@@ -1449,12 +1450,12 @@ def torch_predictions_for_patient(
 
     # Aggregate the probabilities
 
-    agg_outcome = [1 if v > DECISION_THRESHOLD else 0 for v in output_list]
-    total_votes = len(agg_outcome)
-    positive_votes = sum(agg_outcome)
+    segment_outcomes = [1 if v > DECISION_THRESHOLD else 0 for v in output_list]
+    total_votes = len(segment_outcomes)
+    positive_votes = sum(segment_outcomes)
     outcome_probability = positive_votes / total_votes
    
-    agg_outcome = 1 if outcome_probability >= 0.7578 else 0
+    agg_outcome = 1 if outcome_probability > VOTING_POS_MAJORITY_THRESHOLD else 0
     count_aux = ["voted"]
         
     torch_names = [f"prob_{group}_torch_{i}" for i in count_aux]
@@ -1462,7 +1463,8 @@ def torch_predictions_for_patient(
     return (
         outcome_probability,
         agg_outcome, 
-        torch_names
+        torch_names,
+        segment_outcomes
     )
 
 

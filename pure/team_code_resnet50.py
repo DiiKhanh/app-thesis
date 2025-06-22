@@ -81,7 +81,7 @@ USE_ROCKET = False
 USE_AGGREGATION = True
 AGGREGATION_METHOD = "voting"
 DECISION_THRESHOLD = 0.5
-VOTING_POS_MAJORITY_THRESHOLD = 0.66
+VOTING_POS_MAJORITY_THRESHOLD = 0.5
 INFUSE_STATIC_FEATURES = False
 ONLY_EEG_TORCH = True
 ONLY_EEG_ROCKET = False
@@ -400,7 +400,8 @@ def run_challenge_models(models, data_folder, patient_id, verbose, return_eeg_to
         (
             outcome_probability, 
             agg_outcome, 
-            name
+            name,
+            segment_outcomes
         ) = torch_predictions_for_patient(
             output_list_eeg,
             patient_id_list_eeg,
@@ -548,8 +549,6 @@ def torch_prediction(model, data_loader, device):
             quality_list = quality_list + list(qualities.cpu().detach().numpy())
     return output_list, patient_id_list, hour_list, quality_list
 
-    
-
 def torch_predictions_for_patient(
     output_list,
     patient_id_list,
@@ -583,12 +582,12 @@ def torch_predictions_for_patient(
     # Aggregate the probabilities
     if USE_AGGREGATION:
         if AGGREGATION_METHOD == "voting":
-            agg_outcome = [1 if v > DECISION_THRESHOLD else 0 for v in outcome_probabilities_torch]
-            total_votes = len(agg_outcome)
-            positive_votes = sum(agg_outcome)
+            segment_outcomes = [1 if v > DECISION_THRESHOLD else 0 for v in outcome_probabilities_torch]
+            total_votes = len(segment_outcomes)
+            positive_votes = sum(segment_outcomes)
             outcome_probability = positive_votes / total_votes
-            needed_votes = int(np.ceil(len(agg_outcome) * VOTING_POS_MAJORITY_THRESHOLD))
-            agg_outcome = 1 if sum(agg_outcome) >= needed_votes else 0
+            needed_votes = int(np.ceil(len(segment_outcomes) * VOTING_POS_MAJORITY_THRESHOLD))
+            agg_outcome = 1 if sum(segment_outcomes) > needed_votes else 0
             
             
             count_aux = ["voted"]
@@ -613,7 +612,8 @@ def torch_predictions_for_patient(
     return (
         outcome_probability,
         agg_outcome, 
-        torch_names
+        torch_names,
+        segment_outcomes
     )
 
 

@@ -141,23 +141,23 @@ class EEGPredictor:
     def predict_single_patient(self, temp_data_folder, patient_id, model_physical_folder):
         if not self.run_challenge_models_dynamic:
             st.error("❌ Hàm predict model chưa được thiết lập. Vui lòng chọn model hợp lệ.")
-            return None, None, None
+            return None, None, None, None
         try:
             if not self.is_loaded:
                 st.warning(f"Models cho {self.current_model_name} chưa được tải. Đang thử tải...")
                 if not self.load_models(model_physical_folder):
-                    return None, None, None
+                    return None, None, None, None
 
             patient_folder = os.path.join(temp_data_folder, patient_id)
             if not os.path.exists(patient_folder):
                 st.error(f"Không tìm thấy folder patient: {patient_id}")
-                return None, None, None
+                return None, None, None, None
             files_in_folder = os.listdir(patient_folder)
             hea_files = [f for f in files_in_folder if f.endswith('.hea')]
             mat_files = [f for f in files_in_folder if f.endswith('.mat')]
             if not hea_files or not mat_files:
                 st.error(f"Thiếu file .hea hoặc .mat trong folder {patient_id}")
-                return None, None, None
+                return None, None, None, None
             metadata_file = os.path.join(patient_folder, f"{patient_id}.txt")
             actual_outcome = None
             if os.path.exists(metadata_file):
@@ -175,13 +175,14 @@ class EEGPredictor:
                     f.write("Outcome: Unknown\n")
 
             with st.spinner(f"Đang predict cho patient {patient_id} sử dụng {self.current_model_name}..."):
-                outcome_binary, outcome_probability = self.run_challenge_models_dynamic(
+                outcome_binary, outcome_probability, segment_outcomes = self.run_challenge_models_dynamic(
                     self.models, temp_data_folder, patient_id, verbose=0
                 )
-            return outcome_binary, outcome_probability, actual_outcome
+            
+            return outcome_binary, outcome_probability, actual_outcome, segment_outcomes
         except Exception as e:
-            st.error(f"Lỗi khi predict patient {patient_id} với {self.current_model_name}: {str(e)}")
-            return None, None, None
+            st.error(f"Lỗi khi predict {patient_id} với {self.current_model_name}: {str(e)}")
+            return None, None, None, None
 
 def load_recording_data(recording_location):
     """Load EEG recording data from .mat file with improved .hea parsing"""
@@ -738,7 +739,7 @@ def main():
                     results.append({'Patient ID': patient_id, 'Prediction': 'Error - File Prep', 'Actual': "N/A"})
                     continue
                 
-                outcome_binary, outcome_prob, actual_outcome = st.session_state.predictor.predict_single_patient(
+                outcome_binary, outcome_prob, actual_outcome, segment_outcomes = st.session_state.predictor.predict_single_patient(
                     prediction_input_dir, patient_id, selected_model_physical_path
                 )
 
@@ -746,13 +747,15 @@ def main():
                     results.append({
                         'Patient ID': patient_id,
                         'Prediction': 'Good' if outcome_binary == 0 else 'Poor',
-                        'Actual': actual_outcome if actual_outcome else "Unknown"
+                        'Actual': actual_outcome if actual_outcome else "Unknown",
+                        'Segment Outputs': segment_outcomes
                     })
                 else:
                     results.append({
                         'Patient ID': patient_id,
                         'Prediction': 'Error - Prediction Failed',
-                        'Actual': actual_outcome if actual_outcome else "N/A" # Keep actual if read
+                        'Actual': actual_outcome if actual_outcome else "N/A", # Keep actual if read
+                        'Segment Outputs': None
                     })
 
             progress_bar.empty()
@@ -766,6 +769,96 @@ def main():
             
             if results:
                 display_result(results, selected_model_display_name)
+                
+                # Display all recording files and their predictions with segment values
+                st.markdown("---")
+                st.header("📋 Chi tiết Prediction cho từng Recording")
+                
+                for patient_id, patient_original_path in all_patient_folders_info:
+                    # Find the result for this patient
+                    patient_result = None
+                    for result in results:
+                        if result['Patient ID'] == patient_id:
+                            patient_result = result
+                            break
+                    
+                    if not patient_result:
+                        continue
+                    
+                    # Get all recording files for this patient
+                    mat_files = [f for f in os.listdir(patient_original_path) if f.endswith('.mat')]
+                    hea_files = [f for f in os.listdir(patient_original_path) if f.endswith('.hea')]
+                    
+                    if not mat_files:
+                        continue
+                    
+                    with st.expander(f"🧑‍⚕️ Patient {patient_id} - {len(mat_files)} Recording(s)", expanded=True):
+                        # Display overall patient prediction
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Patient ID", patient_id)
+                        with col2:
+                            pred_color = "🟢" if patient_result['Prediction'] == 'Good' else "🔴"
+                            st.metric("Overall Prediction", f"{pred_color} {patient_result['Prediction']}")
+                        with col3:
+                            actual_color = "🟢" if patient_result['Actual'] == 'Good' else ("🔴" if patient_result['Actual'] == 'Poor' else "⚫")
+                            st.metric("Actual Outcome", f"{actual_color} {patient_result['Actual']}")
+                        
+                        # Display individual recording predictions with segment values
+                        st.markdown("#### 📊 Chi tiết từng Recording:")
+                        
+                        # Sort recording files (assuming they have numeric order in filename)
+                        mat_files.sort()
+                        
+                        for i, mat_file in enumerate(mat_files, 1):
+                            recording_base = mat_file.replace('.mat', '')
+                            
+                            # Create a display for each recording with segment values
+                            col1, col2, col3 = st.columns([2, 1, 1])
+                            with col1:
+                                st.markdown(f"**Recording {i}:** `{mat_file}`")
+                            with col2:
+                                st.markdown(f"**Status:** ✅ Processed")
+                            with col3:
+                                # Display actual segment values if available
+                                print('segment coutcomes neee:',segment_outcomes)
+                               
+                                    
+                                segment_data = segment_outcomes[i-1]
+                                
+                                segment_label = 'Good' if segment_data == 0 else 'Poor'
+                                
+                                st.markdown(segment_label)
+                                
+                        # Show detailed segment outputs if available
+                        if patient_result.get('Segment Outputs') and isinstance(patient_result['Segment Outputs'], dict):
+                            st.markdown("#### 📈 Chi tiết Segment Outputs:")
+                            segment_outputs = patient_result['Segment Outputs']
+                            
+                            for recording_name, segment_data in segment_outputs.items():
+                                with st.expander(f"📊 {recording_name}", expanded=False):
+                                    if isinstance(segment_data, list):
+                                        if len(segment_data) > 0:
+                                            # Create a dataframe with segment index and values
+                                            segment_df = pd.DataFrame({
+                                                'Segment Index': range(len(segment_data)),
+                                                'Prediction Value': [f"{val:.4f}" if isinstance(val, (int, float)) else str(val) for val in segment_data]
+                                            })
+                                            st.dataframe(segment_df, use_container_width=True)
+                                        else:
+                                            st.info("Không có segment data.")
+                                    elif isinstance(segment_data, dict):
+                                        # Display as key-value pairs
+                                        segment_items = []
+                                        for key, value in segment_data.items():
+                                            if isinstance(value, (int, float)):
+                                                segment_items.append([key, f"{value:.4f}"])
+                                            else:
+                                                segment_items.append([key, str(value)])
+                                        segment_df = pd.DataFrame(segment_items, columns=['Segment', 'Prediction Value'])
+                                        st.dataframe(segment_df, use_container_width=True)
+                                    else:
+                                        st.text(f"Segment outputs: {segment_data}")
             else:
                 st.error("❌ Không có kết quả prediction nào!")
 
