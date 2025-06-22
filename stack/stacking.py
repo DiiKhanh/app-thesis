@@ -1156,7 +1156,11 @@ def torch_prediction(model, data_loader, device):
 
 
 def get_challenge_models(model_folder, model_filename): 
+    print('get challenge model')
+    print(model_filename)
+    print('model_folder: ',model_folder)
     model_folder = model_folder.lower()
+    
     filename = hf_hub_download(repo_id=model_folder, filename="models.sav")
     model = joblib.load(filename)
     file_path_eeg = hf_hub_download(repo_id=model_folder, filename=model_filename+'.pth')
@@ -1194,7 +1198,7 @@ def train_challenge_model(data_folder, model_folder, patient_ids, verbose):
         "densenet121": get_challenge_models(model_folder, "densenet121")["torch_model_eeg"],
         "efficientnet_v2_s": get_challenge_models(model_folder, "efficientnet_v2_s")["torch_model_eeg"],
         "convnext_tiny": get_challenge_models(model_folder, "convnext_tiny")["torch_model_eeg"],
-        "resnet50": get_challenge_models(model_folder, "resnet50")["torch_model_eeg"]
+        # "resnet50": get_challenge_models(model_folder, "resnet50")["torch_model_eeg"]
     }
     
     # Create datasets
@@ -1343,8 +1347,8 @@ def run_challenge_models(model_folder, data_folder, patient_id, verbose):
         "densenet121": get_challenge_models(model_folder, "densenet121")["torch_model_eeg"],
         "efficientnet_v2_s": get_challenge_models(model_folder, "efficientnet_v2_s")["torch_model_eeg"],
         "convnext_tiny": get_challenge_models(model_folder, "convnext_tiny")["torch_model_eeg"],
-        # "resnet50": get_challenge_models(model_folder, "resnet50")["torch_model_eeg"]
     }
+
     try:
         meta_model_path = hf_hub_download(repo_id=model_folder.lower(), filename="meta_model.sav")
         meta_model = joblib.load(meta_model_path)
@@ -1366,6 +1370,7 @@ def run_challenge_models(model_folder, data_folder, patient_id, verbose):
     all_qualities = {}
     
     for model_name, model in models.items():
+        print(f"Predicting with {model_name}...")
         if verbose >= 2:
             print(f"Predicting with {model_name}...")
             
@@ -1431,6 +1436,7 @@ def run_challenge_models(model_folder, data_folder, patient_id, verbose):
     )
     print('Outcome: ', outcome)
     print('Outcome probability: ', outcome_probability)
+    
     
     return outcome, outcome_probability, segment_outcomes 
     

@@ -124,9 +124,11 @@ class EEGPredictor:
         try:
             if not self.is_loaded:
                 with st.spinner(f"Đang tải models cho {self.current_model_name} từ {model_physical_folder}..."):
+                    print("tai ne: ", type)
                     if (type=='stacking'):
-                        self.models = self.load_challenge_models_dynamic(model_physical_folder, 'densenet121')
-                    else:    
+                        print("Not load model stacking")
+                        # self.models = self.load_challenge_models_dynamic(model_physical_folder, 'densenet121')
+                    else: 
                         self.models = self.load_challenge_models_dynamic(model_physical_folder, verbose=1)
                     self.is_loaded = True
                 st.success(f"✅ Models cho {self.current_model_name} từ {model_physical_folder} đã được tải thành công!")
@@ -136,7 +138,7 @@ class EEGPredictor:
         except Exception as e:
             st.error(f"❌ Lỗi khi tải models cho {self.current_model_name} từ {model_physical_folder}: {str(e)}")
             self.is_loaded = False
-            return False
+            return True
 
     def predict_single_patient(self, temp_data_folder, patient_id, model_physical_folder):
         if not self.run_challenge_models_dynamic:
@@ -175,9 +177,14 @@ class EEGPredictor:
                     f.write("Outcome: Unknown\n")
 
             with st.spinner(f"Đang predict cho patient {patient_id} sử dụng {self.current_model_name}..."):
-                outcome_binary, outcome_probability, segment_outcomes = self.run_challenge_models_dynamic(
-                    self.models, temp_data_folder, patient_id, verbose=0
-                )
+                if self.models == None: 
+                    outcome_binary, outcome_probability, segment_outcomes = self.run_challenge_models_dynamic(
+                        model_physical_folder, temp_data_folder, patient_id, verbose = 0
+                    )
+                else: 
+                    outcome_binary, outcome_probability, segment_outcomes = self.run_challenge_models_dynamic(
+                        self.models, temp_data_folder, patient_id, verbose=0
+                    )
             
             return outcome_binary, outcome_probability, actual_outcome, segment_outcomes
         except Exception as e:
@@ -560,8 +567,8 @@ def main():
         "EfficientNet-V2": {
             "module": "team_code_efficientnetv2",
             "path": {
-                "pure": "diikhanh/pure-efficentnetv2",
-                "improvement": "diikhanh/improvement-efficentnetv2"
+                "pure": "diikhanh/pure-efficientnetv2",
+                "improvement": "diikhanh/improvement-efficientnetv2"
             }  
         },
         "Stacking": {
@@ -611,7 +618,8 @@ def main():
             with st.spinner(f"Đang tải {selected_model_display_name} ({model_type})..."):
                 try:
                     if (model_type == 'stacking'):
-                        st.session_state.predictor.load_models(selected_model_physical_path, type='stacking')
+                        print("Not load model stacking")
+                        # st.session_state.predictor.load_models(selected_model_physical_path, type='stacking')
                     else:
                         st.session_state.predictor.load_models(selected_model_physical_path)
                     st.sidebar.success(f"✅ Đã tải thành công {selected_model_display_name} ({model_type})")
@@ -656,7 +664,7 @@ def main():
 
         if not st.session_state.predictor.is_loaded:
             st.warning(f"⚠️ Models cho {st.session_state.predictor.current_model_name} chưa được tải! Đang thử tải...")
-            if not st.session_state.predictor.load_models(selected_model_physical_path):
+            if not st.session_state.predictor.load_models(selected_model_physical_path, type = model_type):
                 st.error("Không thể tải models. Prediction bị hủy.")
                 return
 
@@ -748,14 +756,12 @@ def main():
                         'Patient ID': patient_id,
                         'Prediction': 'Good' if outcome_binary == 0 else 'Poor',
                         'Actual': actual_outcome if actual_outcome else "Unknown",
-                        'Segment Outputs': segment_outcomes
                     })
                 else:
                     results.append({
                         'Patient ID': patient_id,
                         'Prediction': 'Error - Prediction Failed',
                         'Actual': actual_outcome if actual_outcome else "N/A", # Keep actual if read
-                        'Segment Outputs': None
                     })
 
             progress_bar.empty()
@@ -831,34 +837,7 @@ def main():
                                 st.markdown(segment_label)
                                 
                         # Show detailed segment outputs if available
-                        if patient_result.get('Segment Outputs') and isinstance(patient_result['Segment Outputs'], dict):
-                            st.markdown("#### 📈 Chi tiết Segment Outputs:")
-                            segment_outputs = patient_result['Segment Outputs']
-                            
-                            for recording_name, segment_data in segment_outputs.items():
-                                with st.expander(f"📊 {recording_name}", expanded=False):
-                                    if isinstance(segment_data, list):
-                                        if len(segment_data) > 0:
-                                            # Create a dataframe with segment index and values
-                                            segment_df = pd.DataFrame({
-                                                'Segment Index': range(len(segment_data)),
-                                                'Prediction Value': [f"{val:.4f}" if isinstance(val, (int, float)) else str(val) for val in segment_data]
-                                            })
-                                            st.dataframe(segment_df, use_container_width=True)
-                                        else:
-                                            st.info("Không có segment data.")
-                                    elif isinstance(segment_data, dict):
-                                        # Display as key-value pairs
-                                        segment_items = []
-                                        for key, value in segment_data.items():
-                                            if isinstance(value, (int, float)):
-                                                segment_items.append([key, f"{value:.4f}"])
-                                            else:
-                                                segment_items.append([key, str(value)])
-                                        segment_df = pd.DataFrame(segment_items, columns=['Segment', 'Prediction Value'])
-                                        st.dataframe(segment_df, use_container_width=True)
-                                    else:
-                                        st.text(f"Segment outputs: {segment_data}")
+                        
             else:
                 st.error("❌ Không có kết quả prediction nào!")
 
@@ -923,7 +902,7 @@ def main():
                 "Số kênh hiển thị:",
                 min_value=1,
                 max_value=22,
-                value=19,
+                value=3,
                 help="Số lượng kênh EEG để hiển thị",
                 key="channels_input"
             )
