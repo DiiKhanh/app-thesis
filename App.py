@@ -543,18 +543,18 @@ def main():
 
     # --- Model Configuration ---
     model_config = {
-        "DenseNet-121": {
-            "module": "team_code_densenet121",
-            "path": {
-                "pure": "diikhanh/pure-densenet121",
-                "improvement": "diikhanh/improvement-densenet121"
-            }
-        },
         "ResNet-50": {
             "module": "team_code_resnet50",
             "path": {
                 "pure": "diikhanh/pure-resnet50",
                 "improvement": "diikhanh/improvement-resnet50"
+            }
+        },
+        "DenseNet-121": {
+            "module": "team_code_densenet121",
+            "path": {
+                "pure": "diikhanh/pure-densenet121",
+                "improvement": "diikhanh/improvement-densenet121"
             }
         },
         "ConvNeXt": {
@@ -756,12 +756,14 @@ def main():
                         'Patient ID': patient_id,
                         'Prediction': 'Good' if outcome_binary == 0 else 'Poor',
                         'Actual': actual_outcome if actual_outcome else "Unknown",
+                        'Segment Outcomes': segment_outcomes
                     })
                 else:
                     results.append({
                         'Patient ID': patient_id,
                         'Prediction': 'Error - Prediction Failed',
-                        'Actual': actual_outcome if actual_outcome else "N/A", # Keep actual if read
+                        'Actual': actual_outcome if actual_outcome else "N/A",
+                        'Segment Outcomes': segment_outcomes
                     })
 
             progress_bar.empty()
@@ -827,12 +829,15 @@ def main():
                                 st.markdown(f"**Status:** ✅ Processed")
                             with col3:
                                 # Display actual segment values if available
-                                print('segment coutcomes neee:',segment_outcomes)
-                               
-                                    
-                                segment_data = segment_outcomes[i-1]
+                                print('segment coutcomes::',segment_outcomes)
+                                if i-1 < len(segment_outcomes) and i-1 >= 0:
+                                    segment_data = segment_outcomes[i-1]
+                                else:
+                                    print(f"Invalid index {i-1} for segment_outcomes with length {len(segment_outcomes)}")
+                                    # Handle the error case appropriately
+                                    segment_data = None  # or some default value
                                 
-                                segment_label = 'Good' if segment_data == 0 else 'Poor'
+                                segment_label = 'Unknown' if segment_data is None else ('Good' if segment_data == 0 else 'Poor')
                                 
                                 st.markdown(segment_label)
                                 

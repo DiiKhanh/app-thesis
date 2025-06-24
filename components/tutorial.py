@@ -28,6 +28,6 @@ def show_tutorial():
     # Thêm link tải mẫu Google Drive
     st.markdown("""
     📥 **Tải file mẫu tại đây**: 
-    [<button style='padding: 8px 16px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;'>Tải mẫu ZIP</button>](https://drive.google.com/drive/folders/1ryYWGxTCdV6PbHENlINI67jknuNIG5ro?usp=sharing)
+    [<button style='padding: 8px 16px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;'>Tải mẫu ZIP</button>](https://drive.google.com/file/d/1FkwEvBbB8_osGmJyH1sRqLXJhMtpfQjO/view?usp=sharing)
     """, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)

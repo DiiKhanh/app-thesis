@@ -331,9 +331,9 @@ def train_challenge_model(data_folder, model_folder, patient_ids, verbose):
 # arguments of this function.
 def load_challenge_models(model_folder, verbose):
     model_folder = model_folder.lower()
-    filename = hf_hub_download(repo_id=model_folder, filename="efficientnet-v2-s-72/models.sav")
+    filename = hf_hub_download(repo_id=model_folder, filename="efficentnet-v2-s-72/models.sav")
     model = joblib.load(filename)
-    file_path_eeg = hf_hub_download(repo_id=model_folder, filename="efficientnet-v2-s-72/eeg/checkpoint_best.pth")
+    file_path_eeg = hf_hub_download(repo_id=model_folder, filename="efficentnet-v2-s-72/eeg/checkpoint_best.pth")
     if USE_TORCH:
         print("Load model...")
         model["torch_model_eeg"] = load_last_pt_ckpt(

@@ -11,6 +11,19 @@ def display_result(results, model_name):
 
     st.header("📊 Prediction Results")
     results_df = pd.DataFrame(results)
+
+    def calc_poor_segments(row):
+        if 'Segment Outcomes' in row and isinstance(row['Segment Outcomes'], list):
+            total = len(row['Segment Outcomes'])
+            poor = sum(1 for s in row['Segment Outcomes'] if s == 1)
+            return f"{poor}/{total}" if total > 0 else "0/0"
+        return "N/A"
+    if 'Segment Outcomes' in results_df.columns:
+        results_df['Poor Segments'] = results_df.apply(calc_poor_segments, axis=1)
+        results_df = results_df.drop('Segment Outcomes', axis=1)
+    else:
+        results_df['Poor Segments'] = "N/A"
+
     st.dataframe(results_df, use_container_width=True)
 
     st.subheader("💡 Detailed Patient Results")
