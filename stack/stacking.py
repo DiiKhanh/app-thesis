@@ -27,7 +27,8 @@ from huggingface_hub import hf_hub_download
 TRAIN_LOG_FILE_NAME = "training_log.csv"
 VOTING_POS_MAJORITY_THRESHOLD = 0.5
 DECISION_THRESHOLD = 0.5
-PARAMS_DEVICE = {"num_workers": min(26, os.cpu_count() - 2)}
+# PARAMS_DEVICE = {"num_workers": min(26, os.cpu_count() - 2)}
+PARAMS_DEVICE = {"num_workers": 0}
 NO_CHANNELS_W_ARTIFACT_TO_DISCARD_EPOCH = 2  # Allowed number of channels with artifacts in an epoch to still count the epoch as good
 NO_CHANNELS_W_ARTIFACT_TO_DISCARD_WINDOW = 4  # Allowed number of channels with artifacts in a window to still count the window as good and replace the channels with artifacts by a random other channel
 RESAMPLING_FREQUENCY = 128
